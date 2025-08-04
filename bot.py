@@ -130,7 +130,7 @@ def get_contact_keyboard():
     """Клавиатура для отправки контакта"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📞 Отправить контакт", request_contact=True)]
+            [KeyboardButton(text="📞 Отправить мой номер телефона", request_contact=True)]
         ],
         resize_keyboard=True
     )
@@ -157,9 +157,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
             )
     else:
         await message.answer(
-            "Добро пожаловать в систему SFX Savdo!\n"
-            "Для начала работы необходимо зарегистрироваться.\n"
-            "Введите ваше полное имя:"
+            "Добро пожаловать в систему SFX Savdo! 📋\n\n"
+            "Для регистрации нам понадобится:\n"
+            "1️⃣ Ваше полное имя\n"
+            "2️⃣ Ваш настоящий номер телефона (привязанный к Telegram)\n"
+            "3️⃣ Ваша роль в системе\n\n"
+            "Начнем с имени. Введите ваше полное имя:"
         )
         await state.set_state(RegistrationStates.waiting_for_name)
 
@@ -172,7 +175,14 @@ async def cmd_register(message: types.Message, state: FSMContext):
         await message.answer("Вы уже зарегистрированы и одобрены!")
         return
     
-    await message.answer("Введите ваше полное имя:")
+    await message.answer(
+        "Добро пожаловать в систему SFX Savdo! 📋\n\n"
+        "Для регистрации нам понадобится:\n"
+        "1️⃣ Ваше полное имя\n"
+        "2️⃣ Ваш настоящий номер телефона (привязанный к Telegram)\n"
+        "3️⃣ Ваша роль в системе\n\n"
+        "Начнем с имени. Введите ваше полное имя:"
+    )
     await state.set_state(RegistrationStates.waiting_for_name)
 
 # Обработчики регистрации
@@ -180,40 +190,45 @@ async def cmd_register(message: types.Message, state: FSMContext):
 async def process_name(message: types.Message, state: FSMContext):
     """Обработка ввода имени"""
     await state.update_data(name=message.text)
-    await message.answer("Введите ваш номер телефона:")
-    await state.set_state(RegistrationStates.waiting_for_phone)
-
-@router.message(RegistrationStates.waiting_for_phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    """Обработка ввода телефона"""
-    await state.update_data(phone=message.text)
     await message.answer(
-        "Выберите вашу роль:",
-        reply_markup=get_role_keyboard()
-    )
-    await state.set_state(RegistrationStates.waiting_for_role)
-
-@router.message(RegistrationStates.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext):
-    """Обработка ввода имени"""
-    await state.update_data(name=message.text)
-    await message.answer(
-        "Введите ваш номер телефона или нажмите кнопку для отправки контакта:",
+        "Отправьте ваш номер телефона, нажав кнопку ниже:",
         reply_markup=get_contact_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_phone)
+
+
+
+
+
+@router.message(RegistrationStates.waiting_for_phone)
+async def process_phone_input(message: types.Message, state: FSMContext):
+    """Обработка ввода телефона - только контакт"""
+    await message.answer(
+        "❌ Пожалуйста, отправьте ваш номер телефона, нажав кнопку '📞 Отправить мой номер телефона' ниже:",
+        reply_markup=get_contact_keyboard()
+    )
 
 @router.message(RegistrationStates.waiting_for_phone, F.contact)
 async def process_contact(message: types.Message, state: FSMContext):
     """Обработка отправки контакта"""
     contact = message.contact
+    
+    # Проверяем, что контакт принадлежит пользователю
+    if contact.user_id != message.from_user.id:
+        await message.answer(
+            "❌ Пожалуйста, отправьте свой собственный номер телефона!",
+            reply_markup=get_contact_keyboard()
+        )
+        return
+    
     phone = contact.phone_number
     if phone.startswith('+'):
         phone = phone[1:]  # Убираем + если есть
     
     await state.update_data(phone=phone)
     await message.answer(
-        "Выберите вашу роль:",
+        f"✅ Номер телефона получен: {contact.phone_number}\n\n"
+        "Теперь выберите вашу роль:",
         reply_markup=get_role_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_role)
