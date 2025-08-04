@@ -10,14 +10,14 @@ class ExcelHandler:
     
     def create_purchase_request_template(self):
         """Создание шаблона заявки на покупку"""
-        # Создаем DataFrame с заголовками
+        # Создаем DataFrame с заголовками и примерами
         data = {
-            'Потсавшик': [''],
-            'Обект номи': [''],
-            'Махсулот номи': [''],
-            'Миқдори': [''],
-            'Ўлчов бирлиги': [''],
-            'Материал изох': ['']
+            'Потсавшик': ['Мисол: ООО "Строитель"'],
+            'Обект номи': ['Мисол: Жилой комплекс "Сам Сити"'],
+            'Махсулот номи': ['Мисол: Цемент'],
+            'Миқдори': ['100'],
+            'Ўлчов бирлиги': ['мешок'],
+            'Материал изох': ['Марка М400']
         }
         
         df = pd.DataFrame(data)
@@ -100,8 +100,14 @@ class ExcelHandler:
             
             # Получаем общие данные заявки (из первой строки)
             first_row = df.iloc[0]
-            supplier_name = str(first_row['Потсавшик']) if pd.notna(first_row['Потсавшик']) else 'Не указан'
-            object_name = str(first_row['Обект номи']) if pd.notna(first_row['Обект номи']) else 'Не указан'
+            supplier_name = str(first_row['Потсавшик']).strip() if pd.notna(first_row['Потсавшик']) and str(first_row['Потсавшик']).strip() != '' else 'Не указан'
+            object_name = str(first_row['Обект номи']).strip() if pd.notna(first_row['Обект номи']) and str(first_row['Обект номи']).strip() != '' else 'Не указан'
+            
+            # Убираем префикс "Мисол: " если он есть
+            if supplier_name.startswith('Мисол: '):
+                supplier_name = supplier_name[7:]
+            if object_name.startswith('Мисол: '):
+                object_name = object_name[7:]
             
             items = []
             for index, row in df.iterrows():

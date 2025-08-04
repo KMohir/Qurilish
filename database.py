@@ -17,6 +17,9 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         
+        # Удаляем старую таблицу deliveries если она существует
+        cursor.execute("DROP TABLE IF EXISTS deliveries CASCADE")
+        
         # Таблица пользователей
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -370,15 +373,15 @@ class Database:
         conn.close()
         return offer
     
-    def add_delivery(self, offer_id, warehouse_user_id, buyer_id):
+    def add_delivery(self, offer_id, warehouse_user_id):
         """Создание записи доставки"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO deliveries (offer_id, warehouse_user_id, buyer_id)
-            VALUES (%s, %s, %s) RETURNING id
-        """, (offer_id, warehouse_user_id, buyer_id))
+            INSERT INTO deliveries (offer_id, warehouse_user_id)
+            VALUES (%s, %s) RETURNING id
+        """, (offer_id, warehouse_user_id))
         
         delivery_id = cursor.fetchone()[0]
         conn.commit()
@@ -404,4 +407,78 @@ class Database:
         
         conn.commit()
         cursor.close()
-        conn.close() 
+        conn.close()
+    
+    def get_pending_deliveries(self):
+        """Получение ожидающих доставок"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT d.id, d.offer_id, d.warehouse_user_id, d.status, d.received_at, d.created_at,
+                   so.total_amount,
+                   u_seller.full_name as seller_name,
+                   u_seller.phone_number as seller_phone,
+                   u_buyer.full_name as buyer_name,
+                   u_buyer.phone_number as buyer_phone,
+                   pr.supplier, pr.object_name
+            FROM deliveries d
+            JOIN seller_offers so ON d.offer_id = so.id
+            JOIN users u_seller ON so.seller_id = u_seller.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            JOIN users u_buyer ON pr.buyer_id = u_buyer.id
+            WHERE d.status = 'pending'
+            ORDER BY d.created_at DESC
+        """)
+        
+        deliveries = cursor.fetchall()
+        
+        # Получаем товары для каждой доставки
+        for delivery in deliveries:
+            cursor.execute("""
+                SELECT * FROM offer_items 
+                WHERE offer_id = %s 
+                ORDER BY created_at
+            """, (delivery['offer_id'],))
+            delivery['items'] = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        return deliveries
+    
+    def get_received_deliveries(self):
+        """Получение принятых доставок"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT d.id, d.offer_id, d.warehouse_user_id, d.status, d.received_at, d.created_at,
+                   so.total_amount,
+                   u_seller.full_name as seller_name,
+                   u_seller.phone_number as seller_phone,
+                   u_buyer.full_name as buyer_name,
+                   u_buyer.phone_number as buyer_phone,
+                   pr.supplier, pr.object_name
+            FROM deliveries d
+            JOIN seller_offers so ON d.offer_id = so.id
+            JOIN users u_seller ON so.seller_id = u_seller.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            JOIN users u_buyer ON pr.buyer_id = u_buyer.id
+            WHERE d.status = 'received'
+            ORDER BY d.received_at DESC
+        """)
+        
+        deliveries = cursor.fetchall()
+        
+        # Получаем товары для каждой доставки
+        for delivery in deliveries:
+            cursor.execute("""
+                SELECT * FROM offer_items 
+                WHERE offer_id = %s 
+                ORDER BY created_at
+            """, (delivery['offer_id'],))
+            delivery['items'] = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        return deliveries 

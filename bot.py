@@ -55,6 +55,9 @@ class SellerOfferStates(StatesGroup):
 class BuyerApprovalStates(StatesGroup):
     waiting_for_offer_approval = State()
 
+class SellerDeliveryStates(StatesGroup):
+    waiting_for_shipment_confirmation = State()
+
 # Временная зона
 timezone = pytz.timezone(TIMEZONE)
 
@@ -72,43 +75,43 @@ def get_main_keyboard(user_role: str):
     if user_role == 'buyer':
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="📋 Создать заявку")],
-                [KeyboardButton(text="📊 Мои заявки")],
-                [KeyboardButton(text="📦 Мои заказы")],
-                [KeyboardButton(text="ℹ️ Помощь")]
+                [KeyboardButton(text="📋 Ариза яратиш")],
+                [KeyboardButton(text="📊 Менинг аризаларим")],
+                [KeyboardButton(text="📦 Менинг буюртмаларим")],
+                [KeyboardButton(text="ℹ️ Ёрдам")]
             ],
             resize_keyboard=True
         )
     elif user_role == 'seller':
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="📋 Активные заявки")],
-                [KeyboardButton(text="💼 Мои предложения")],
-                [KeyboardButton(text="ℹ️ Помощь")]
+                [KeyboardButton(text="📋 Фаол аризалар")],
+                [KeyboardButton(text="💼 Менинг таклифларим")],
+                [KeyboardButton(text="ℹ️ Ёрдам")]
             ],
             resize_keyboard=True
         )
     elif user_role == 'warehouse':
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="📦 Ожидающие доставки")],
-                [KeyboardButton(text="✅ Принятые товары")],
-                [KeyboardButton(text="ℹ️ Помощь")]
+                [KeyboardButton(text="📦 Кутган етказиб беришлар")],
+                [KeyboardButton(text="✅ Кабул қилинган товарлар")],
+                [KeyboardButton(text="ℹ️ Ёрдам")]
             ],
             resize_keyboard=True
         )
     elif user_role == 'admin':
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="👥 Управление пользователями")],
+                [KeyboardButton(text="👥 Фойдаланувчиларни бошқариш")],
                 [KeyboardButton(text="📊 Статистика")],
-                [KeyboardButton(text="ℹ️ Помощь")]
+                [KeyboardButton(text="ℹ️ Ёрдам")]
             ],
             resize_keyboard=True
         )
     else:
         keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="ℹ️ Помощь")]],
+            keyboard=[[KeyboardButton(text="ℹ️ Ёрдам")]],
             resize_keyboard=True
         )
     
@@ -130,7 +133,7 @@ def get_contact_keyboard():
     """Клавиатура для отправки контакта"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📞 Отправить мой номер телефона", request_contact=True)]
+            [KeyboardButton(text="📞 Менинг рақамини юбориш", request_contact=True)]
         ],
         resize_keyboard=True
     )
@@ -140,29 +143,34 @@ def get_contact_keyboard():
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     """Обработчик команды /start"""
+    # Очищаем состояние при старте
+    await state.clear()
+    print(f"DEBUG: Состояние очищено для пользователя {message.from_user.id}")
+    
     user = db.get_user(message.from_user.id)
     
     if user:
         if user['is_approved']:
             await message.answer(
-                f"Добро пожаловать, {user['full_name']}!\n"
-                f"Ваша роль: {user['role']}\n"
-                f"Время: {get_current_time()}",
+                f"Хуш келибсиз, {user['full_name']}!\n"
+                f"Ролингиз: {user['role']}\n"
+                f"Вақт: {get_current_time()}",
                 reply_markup=get_main_keyboard(user['role'])
             )
+            print(f"DEBUG: Показано главное меню для пользователя {message.from_user.id} с ролью {user['role']}")
         else:
             await message.answer(
-                "Ваша заявка на регистрацию ожидает одобрения администратора. "
-                "Вы получите уведомление, когда администратор одобрит вашу заявку."
+                "Рўйхатдан ўтиш аризангиз маъмур тасдиқлашини кутмоқда. "
+                "Маъмур аризангизни тасдиқлаганда хабар оласиз."
             )
     else:
         await message.answer(
-            "Добро пожаловать в систему SFX Savdo! 📋\n\n"
-            "Для регистрации нам понадобится:\n"
-            "1️⃣ Ваше полное имя\n"
-            "2️⃣ Ваш настоящий номер телефона (привязанный к Telegram)\n"
-            "3️⃣ Ваша роль в системе\n\n"
-            "Начнем с имени. Введите ваше полное имя:"
+            "SFX Savdo тизимига хуш келибсиз! 📋\n\n"
+            "Рўйхатдан ўтиш учун бизга керак:\n"
+            "1️⃣ Тўлиқ исмингиз\n"
+            "2️⃣ Telegram-га богланган рақамингиз\n"
+            "3️⃣ Тизимдаги ролингиз\n\n"
+            "Исмдан бошлаймиз. Тўлиқ исмингизни киритинг:"
         )
         await state.set_state(RegistrationStates.waiting_for_name)
 
@@ -172,16 +180,16 @@ async def cmd_register(message: types.Message, state: FSMContext):
     user = db.get_user(message.from_user.id)
     
     if user and user['is_approved']:
-        await message.answer("Вы уже зарегистрированы и одобрены!")
+        await message.answer("Сиз аллақачон рўйхатдан ўтган ва тасдиқлангансиз!")
         return
     
     await message.answer(
-        "Добро пожаловать в систему SFX Savdo! 📋\n\n"
-        "Для регистрации нам понадобится:\n"
-        "1️⃣ Ваше полное имя\n"
-        "2️⃣ Ваш настоящий номер телефона (привязанный к Telegram)\n"
-        "3️⃣ Ваша роль в системе\n\n"
-        "Начнем с имени. Введите ваше полное имя:"
+        "SFX Savdo тизимига хуш келибсиз! 📋\n\n"
+        "Рўйхатдан ўтиш учун бизга керак:\n"
+        "1️⃣ Тўлиқ исмингиз\n"
+        "2️⃣ Telegram-га богланган рақамингиз\n"
+        "3️⃣ Тизимдаги ролингиз\n\n"
+        "Исмдан бошлаймиз. Тўлиқ исмингизни киритинг:"
     )
     await state.set_state(RegistrationStates.waiting_for_name)
 
@@ -191,47 +199,52 @@ async def process_name(message: types.Message, state: FSMContext):
     """Обработка ввода имени"""
     await state.update_data(name=message.text)
     await message.answer(
-        "Отправьте ваш номер телефона, нажав кнопку ниже:",
+        "Рақамингизни юбориш учун тўғридаги тугмани босинг:",
         reply_markup=get_contact_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_phone)
 
 
-
-
-
-@router.message(RegistrationStates.waiting_for_phone)
-async def process_phone_input(message: types.Message, state: FSMContext):
-    """Обработка ввода телефона - только контакт"""
-    await message.answer(
-        "❌ Пожалуйста, отправьте ваш номер телефона, нажав кнопку '📞 Отправить мой номер телефона' ниже:",
-        reply_markup=get_contact_keyboard()
-    )
-
 @router.message(RegistrationStates.waiting_for_phone, F.contact)
 async def process_contact(message: types.Message, state: FSMContext):
     """Обработка отправки контакта"""
+    print("DEBUG: === ОБРАБОТЧИК КОНТАКТА СРАБОТАЛ ===")
     contact = message.contact
     
-    # Проверяем, что контакт принадлежит пользователю
-    if contact.user_id != message.from_user.id:
-        await message.answer(
-            "❌ Пожалуйста, отправьте свой собственный номер телефона!",
-            reply_markup=get_contact_keyboard()
-        )
-        return
+    # Добавляем отладочную информацию
+    print(f"DEBUG: Получен контакт от пользователя {message.from_user.id}")
+    print(f"DEBUG: contact.phone_number = {contact.phone_number}")
+    print(f"DEBUG: contact.user_id = {contact.user_id}")
+    print(f"DEBUG: message.from_user.id = {message.from_user.id}")
+    print(f"DEBUG: contact.first_name = {contact.first_name}")
+    print(f"DEBUG: contact.last_name = {contact.last_name}")
     
+    # Упрощаем логику - принимаем любой контакт
     phone = contact.phone_number
     if phone.startswith('+'):
         phone = phone[1:]  # Убираем + если есть
     
     await state.update_data(phone=phone)
     await message.answer(
-        f"✅ Номер телефона получен: {contact.phone_number}\n\n"
-        "Теперь выберите вашу роль:",
+        f"✅ Телефон рақами олинди: {contact.phone_number}\n\n"
+        "Энди ролингизни танланг:",
         reply_markup=get_role_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_role)
+    print("DEBUG: === ОБРАБОТЧИК КОНТАКТА ЗАВЕРШЕН ===")
+
+@router.message(RegistrationStates.waiting_for_phone)
+async def process_phone_input(message: types.Message, state: FSMContext):
+    """Обработка ввода телефона - только контакт"""
+    print(f"DEBUG: Получено сообщение в состоянии ожидания телефона")
+    print(f"DEBUG: Тип сообщения: {message.content_type}")
+    print(f"DEBUG: Текст сообщения: {message.text}")
+    print(f"DEBUG: Есть ли контакт: {hasattr(message, 'contact')}")
+    
+    await message.answer(
+        "❌ Илтимос, рақамингизни юбориш учун '📞 Менинг рақамини юбориш' тугмасини босинг:",
+        reply_markup=get_contact_keyboard()
+    )
 
 @router.message(RegistrationStates.waiting_for_role)
 async def process_role(message: types.Message, state: FSMContext):
@@ -243,7 +256,7 @@ async def process_role(message: types.Message, state: FSMContext):
     }
     
     if message.text not in role_mapping:
-        await message.answer("Пожалуйста, выберите роль из предложенных вариантов:")
+        await message.answer("Илтимос, таклиф этилган вариантлардан бирини танланг:")
         return
     
     role = role_mapping[message.text]
@@ -262,14 +275,18 @@ async def process_role(message: types.Message, state: FSMContext):
         # Поставщики автоматически одобряются
         db.approve_user(message.from_user.id)
         await message.answer(
-            "Регистрация успешно завершена! Вы можете начать работу.",
+            f"Рўйхатдан ўтиш муваффақиятли якунланди!\n\n"
+            f"Хуш келибсиз, {user_data['name']}!\n"
+            f"Ролингиз: {role}\n"
+            f"Вақт: {get_current_time()}",
             reply_markup=get_main_keyboard(role)
         )
+        print(f"DEBUG: Показано главное меню для поставщика {message.from_user.id}")
     else:
         # Заказчики и зав. склада требуют одобрения админа
         await message.answer(
-            "Регистрация завершена! Ваша заявка отправлена администратору на одобрение. "
-            "Вы получите уведомление, когда администратор одобрит вашу заявку."
+            "Рўйхатдан ўтиш якунланди! Аризангиз маъмурга юборилди тасдиқлаш учун. "
+            "Маъмур аризангизни тасдиқлаганда хабар оласиз."
         )
         
         # Уведомление администраторов
@@ -277,8 +294,8 @@ async def process_role(message: types.Message, state: FSMContext):
             try:
                 await bot.send_message(
                     admin_id,
-                    f"🔔 Новая заявка на регистрацию!\n"
-                    f"Имя: {user_data['name']}\n"
+                    f"🔔 Рўйхатдан ўтиш учун янги ариза!\n"
+                    f"Исм: {user_data['name']}\n"
                     f"Телефон: {user_data['phone']}\n"
                     f"Роль: {role}\n"
                     f"Telegram ID: {message.from_user.id}"
@@ -286,14 +303,16 @@ async def process_role(message: types.Message, state: FSMContext):
             except Exception as e:
                 logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
     
+    # Принудительно очищаем состояние
     await state.clear()
+    print(f"DEBUG: Состояние очищено для пользователя {message.from_user.id}")
 
 # Административные команды
 @router.message(Command("admin"))
 async def cmd_admin(message: types.Message):
     """Панель администратора"""
     if not is_admin(message.from_user.id):
-        await message.answer("У вас нет прав администратора!")
+        await message.answer("Сизда маъмур ҳуқуқлари йўқ!")
         return
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -309,7 +328,7 @@ async def cmd_admin(message: types.Message):
 async def process_admin_callback(callback_query: types.CallbackQuery):
     """Обработка административных callback'ов"""
     if not is_admin(callback_query.from_user.id):
-        await callback_query.answer("У вас нет прав администратора!")
+        await callback_query.answer("Сизда маъмур ҳуқуқлари йўқ!")
         return
     
     action = callback_query.data
@@ -328,28 +347,28 @@ async def process_admin_callback(callback_query: types.CallbackQuery):
         conn.close()
         
         if not pending_users:
-            await callback_query.message.answer("Нет пользователей ожидающих одобрения.")
+            await callback_query.message.answer("Тасдиқлашни кутган фойдаланувчилар йўқ.")
             return
         
-        text = "👥 Пользователи ожидающие одобрения:\n\n"
+        text = "👥 Тасдиқлашни кутган фойдаланувчилар:\n\n"
         for user in pending_users:
             text += f"ID: {user['telegram_id']}\n"
-            text += f"Имя: {user['full_name']}\n"
+            text += f"Исм: {user['full_name']}\n"
             text += f"Телефон: {user['phone_number']}\n"
             text += f"Роль: {user['role']}\n"
-            text += f"Дата: {user['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
+            text += f"Сана: {user['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
             text += "─" * 30 + "\n"
         
         await callback_query.message.answer(text)
     
     elif action == "admin_add_buyer":
         await callback_query.message.answer(
-            "Для добавления заказчика, попросите его отправить команду /register и выбрать роль 'Заказчик'"
+            "Заказчик қўшиш учун, унингга /register буйруғини юбориш ва 'Заказчик' ролини танлашни сўранг"
         )
     
     elif action == "admin_add_warehouse":
         await callback_query.message.answer(
-            "Для добавления зав. склада, попросите его отправить команду /register и выбрать роль 'Зав. Склад'"
+            "Зав. склад қўшиш учун, унингга /register буйруғини юбориш ва 'Зав. Склад' ролини танлашни сўранг"
         )
     
     await callback_query.answer()
@@ -368,7 +387,9 @@ async def process_create_request(callback_query: types.CallbackQuery, state: FSM
                 excel_file.getvalue(),
                 filename="заявка_шаблон.xlsx"
             ),
-            caption="📊 Заполните этот шаблон и отправьте обратно:"
+            caption="📊 Бу шаблонни тўлдиринг ва қайта юборинг:\n\n"
+                   "⚠️ **МУҲИМ:** Бирінчи қаторда поставщик ва объект номини тўлдиринг!\n"
+                   "📝 Мисолларда кўрсатилган форматда ёзинг."
         )
         await state.set_state(PurchaseRequestStates.waiting_for_excel_file)
         
@@ -460,7 +481,20 @@ async def process_excel_request(message: types.Message, state: FSMContext):
         request_data = excel_handler.parse_purchase_request(file_content.read())
         
         if not request_data['items']:
-            await message.answer("❌ Файл пуст или имеет неверный формат.")
+            await message.answer("❌ Файл бўш ёки нотўғри форматда.")
+            return
+        
+        # Проверяем, что указаны поставщик и объект
+        if request_data['supplier_name'] == 'Не указан' or request_data['object_name'] == 'Не указан':
+            await message.answer(
+                "❌ Илтимос, Excel файлда поставщик ва объект номини тўлдиринг!\n\n"
+                "📝 Бирінчи қаторда:\n"
+                "• Потсавшик: [поставщик номи]\n"
+                "• Обект номи: [объект номи]\n\n"
+                "Мисол:\n"
+                "• Потсавшик: ООО \"Строитель\"\n"
+                "• Обект номи: Жилой комплекс \"Сам Сити\""
+            )
             return
         
         # Сохраняем заявку в базе данных
@@ -507,7 +541,7 @@ async def process_excel_request(message: types.Message, state: FSMContext):
                 logger.error(f"Failed to send request to seller {seller['telegram_id']}: {e}")
         
         await message.answer(
-            f"✅ Заявка с {len(request_data['items'])} товарами успешно создана и отправлена {len(sellers)} поставщикам!",
+            f"✅ {len(request_data['items'])} товар билан ариза муваффақиятли яратилди ва {len(sellers)} поставщикка юборилди!",
             reply_markup=get_main_keyboard(user['role'])
         )
         await state.clear()
@@ -534,7 +568,7 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
         offer_data = excel_handler.parse_seller_offer(file_content.read())
         
         if not offer_data['items']:
-            await message.answer("❌ Файл пуст или не содержит предложений с ценами.")
+            await message.answer("❌ Файл бўш ёки нархлар билан таклифларни ўз ичига олмаган.")
             return
         
         # Получаем данные из состояния
@@ -542,7 +576,7 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
         request_id = state_data.get('request_id')
         
         if not request_id:
-            await message.answer("❌ Ошибка: не найдена заявка.")
+            await message.answer("❌ Хатолик: ариза топилмади.")
             return
         
         # Сохраняем предложение в базе данных
@@ -615,7 +649,7 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
                         excel_file.getvalue(),
                         filename=f"предложения_заявка_{request_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
                     ),
-                    caption="📊 Excel файл с предложениями поставщиков"
+                    caption="📊 Поставщиклар таклифлари билан Excel файл"
                 )
                 
                 # Отправляем сводку покупателю с кнопками
@@ -626,13 +660,13 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
                 )
                 
                 await message.answer(
-                    f"✅ Предложение успешно отправлено заказчику!",
+                    f"✅ Таклиф муваффақиятли заказчикка юборилди!",
                     reply_markup=get_main_keyboard(user['role'])
                 )
                 
             except Exception as e:
                 logger.error(f"Failed to notify buyer {request['buyer_telegram_id']}: {e}")
-                await message.answer("✅ Предложение сохранено, но не удалось уведомить заказчика.")
+                await message.answer("✅ Таклиф сақланди, лекин заказчикни хабардор қилиш мумкин эмас.")
         
         await state.clear()
         
@@ -651,21 +685,68 @@ async def cmd_approve(message: types.Message):
         telegram_id = int(message.text.split()[1])
         db.approve_user(telegram_id)
         
-        # Уведомление пользователя
+        # Получаем данные пользователя для показа правильного меню
+        user = db.get_user(telegram_id)
+        
+        # Уведомление пользователя с главным меню
         try:
-            await bot.send_message(
-                telegram_id,
-                "✅ Ваша заявка на регистрацию одобрена! Теперь вы можете использовать бота."
-            )
+            if user and user['is_approved']:
+                await bot.send_message(
+                    telegram_id,
+                    f"✅ Ваша заявка на регистрацию одобрена!\n\n"
+                    f"Хуш келибсиз, {user['full_name']}!\n"
+                    f"Ролингиз: {user['role']}\n"
+                    f"Вақт: {get_current_time()}",
+                    reply_markup=get_main_keyboard(user['role'])
+                )
+                print(f"DEBUG: Показано главное меню для одобренного пользователя {telegram_id} с ролью {user['role']}")
+            else:
+                await bot.send_message(
+                    telegram_id,
+                    "✅ Ваша заявка на регистрацию одобрена! Теперь вы можете использовать бота."
+                )
         except Exception as e:
             logger.error(f"Не удалось уведомить пользователя {telegram_id}: {e}")
         
-        await message.answer(f"Пользователь {telegram_id} успешно одобрен!")
+        await message.answer(f"Фойдаланувчи {telegram_id} муваффақиятли тасдиқланди!")
+        
+        # Очищаем состояние FSM для одобренного пользователя
+        try:
+            # Создаем временный диспетчер для очистки состояния
+            temp_storage = MemoryStorage()
+            temp_dp = Dispatcher(storage=temp_storage)
+            temp_state = FSMContext(storage=temp_storage, key=Bot(id=0, token=""), chat=telegram_id, user=telegram_id)
+            await temp_state.clear()
+            print(f"DEBUG: Состояние очищено для одобренного пользователя {telegram_id}")
+        except Exception as e:
+            print(f"DEBUG: Не удалось очистить состояние для пользователя {telegram_id}: {e}")
         
     except (IndexError, ValueError):
-        await message.answer("Использование: /approve <telegram_id>")
+        await message.answer("Ишлатиш: /approve <telegram_id>")
 
 # Команда для отклонения пользователей
+@router.message(Command("clear"))
+async def cmd_clear(message: types.Message, state: FSMContext):
+    """Очистить состояние FSM"""
+    await state.clear()
+    await message.answer("✅ Состояние очищено!")
+
+@router.message(Command("reset"))
+async def cmd_reset(message: types.Message, state: FSMContext):
+    """Сбросить состояние и показать главное меню"""
+    await state.clear()
+    user = db.get_user(message.from_user.id)
+    
+    if user and user['is_approved']:
+        await message.answer(
+            f"🔄 Состояние сброшено!\n"
+            f"Хуш келибсиз, {user['full_name']}!\n"
+            f"Ролингиз: {user['role']}",
+            reply_markup=get_main_keyboard(user['role'])
+        )
+    else:
+        await message.answer("Состояние сброшено. Используйте /register для регистрации.")
+
 @router.message(Command("reject"))
 async def cmd_reject(message: types.Message):
     """Отклонение пользователя администратором"""
@@ -693,10 +774,10 @@ async def cmd_reject(message: types.Message):
         except Exception as e:
             logger.error(f"Не удалось уведомить пользователя {telegram_id}: {e}")
         
-        await message.answer(f"Пользователь {telegram_id} отклонен и удален из системы!")
+        await message.answer(f"Фойдаланувчи {telegram_id} рад этилди ва тизимдан ўчирилди!")
         
     except (IndexError, ValueError):
-        await message.answer("Использование: /reject <telegram_id>")
+        await message.answer("Ишлатиш: /reject <telegram_id>")
 
 # Обработчики для одобрения предложений
 @router.callback_query(lambda c: c.data.startswith('approve_offer_'))
@@ -719,21 +800,32 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
         # Обновляем статус предложения
         db.update_offer_status(offer_id, 'approved')
         
-        # Уведомляем поставщика
+        # Создаем запись доставки
+        delivery_id = db.add_delivery(offer_id, None)  # warehouse_user_id будет установлен позже
+        
+        # Уведомляем поставщика с кнопкой подтверждения отправки
         try:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🚚 Товарларни юборилди", callback_data=f"ship_sent_{delivery_id}")]
+            ])
+            
             await bot.send_message(
                 offer['seller_telegram_id'],
-                f"✅ Ваше предложение #{offer_id} одобрено заказчиком!\n"
-                f"💵 Общая сумма: {offer['total_amount']:,} сум\n"
-                f"📅 Дата одобрения: {get_current_time()}"
+                f"✅ Сизнинг таклифингиз #{offer_id} заказчик томонидан тасдиқланди!\n\n"
+                f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
+                f"📅 Тасдиқлаш санаси: {get_current_time()}\n"
+                f"📦 Доставка #{delivery_id} яратилди\n\n"
+                f"🚚 Илтимос, товарларни складга юборинг ва тўғридаги тугмани босинг:",
+                reply_markup=keyboard
             )
         except Exception as e:
             logger.error(f"Failed to notify seller {offer['seller_telegram_id']}: {e}")
         
         await callback_query.message.edit_text(
-            f"✅ Предложение #{offer_id} одобрено!\n"
+            f"✅ Таклиф #{offer_id} тасдиқланди!\n"
             f"👤 Поставщик: {offer['full_name']}\n"
-            f"💵 Сумма: {offer['total_amount']:,} сум"
+            f"💵 Сумма: {offer['total_amount']:,} сўм\n"
+            f"📦 Доставка #{delivery_id} яратилди"
         )
         
     except Exception as e:
@@ -763,16 +855,231 @@ async def process_reject_offer(callback_query: types.CallbackQuery):
         try:
             await bot.send_message(
                 offer['seller_telegram_id'],
-                f"❌ Ваше предложение #{offer_id} отклонено заказчиком.\n"
-                f"📅 Дата отклонения: {get_current_time()}"
+                f"❌ Сизнинг таклифингиз #{offer_id} заказчик томонидан рад этилди.\n"
+                f"📅 Рад этиш санаси: {get_current_time()}"
             )
         except Exception as e:
             logger.error(f"Failed to notify seller {offer['seller_telegram_id']}: {e}")
         
         await callback_query.message.edit_text(
-            f"❌ Предложение #{offer_id} отклонено.\n"
+            f"❌ Таклиф #{offer_id} рад этилди.\n"
             f"👤 Поставщик: {offer['full_name']}"
         )
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
+# Обработчики доставки
+@router.callback_query(lambda c: c.data.startswith('deliver_'))
+async def process_delivery_confirmation(callback_query: types.CallbackQuery):
+    """Подтверждение доставки"""
+    try:
+        delivery_id = int(callback_query.data.split('_')[1])
+        user = db.get_user(callback_query.from_user.id)
+        
+        if not user or user['role'] != 'warehouse':
+            await callback_query.answer("❌ Только складские работники могут подтверждать доставки!")
+            return
+        
+        # Получаем данные доставки для уведомления заказчика
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT d.*, so.total_amount, pr.supplier, pr.object_name,
+                   u_seller.full_name as seller_name, u_buyer.full_name as buyer_name,
+                   u_buyer.telegram_id as buyer_telegram_id
+            FROM deliveries d
+            JOIN seller_offers so ON d.offer_id = so.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            JOIN users u_seller ON so.seller_id = u_seller.id
+            JOIN users u_buyer ON pr.buyer_id = u_buyer.id
+            WHERE d.id = %s
+        """, (delivery_id,))
+        delivery = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not delivery:
+            await callback_query.answer("❌ Доставка не найдена!")
+            return
+        
+        # Обновляем статус доставки
+        db.update_delivery_status(delivery_id, 'delivered')
+        
+        # Уведомляем заказчика
+        try:
+            await bot.send_message(
+                delivery['buyer_telegram_id'],
+                f"🎉 **Товарлар келди!**\n\n"
+                f"📦 Доставка #{delivery_id}\n"
+                f"🏢 Поставщик: {delivery['supplier']}\n"
+                f"🏗️ Объект: {delivery['object_name']}\n"
+                f"👤 Поставщик: {delivery['seller_name']}\n"
+                f"💵 Сумма: {delivery['total_amount']:,} сум\n"
+                f"📅 Время получения: {get_current_time()}\n\n"
+                f"✅ Товарлар складда тайёр. Олишингиз мумкин!"
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify buyer {delivery['buyer_telegram_id']}: {e}")
+        
+        await callback_query.message.edit_text(
+            f"✅ Доставка #{delivery_id} подтверждена!\n"
+            f"📅 Время: {get_current_time()}\n\n"
+            f"✅ Заказчик уведомлен о прибытии товаров!"
+        )
+        await callback_query.answer("✅ Доставка подтверждена!")
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
+@router.callback_query(lambda c: c.data.startswith('goods_received_'))
+async def process_goods_received(callback_query: types.CallbackQuery):
+    """Склад подтверждает получение товаров"""
+    try:
+        delivery_id = int(callback_query.data.split('_')[2])
+        user = db.get_user(callback_query.from_user.id)
+        
+        if not user or user['role'] != 'warehouse':
+            await callback_query.answer("❌ Только складские работники могут подтверждать получение!")
+            return
+        
+        # Получаем данные доставки
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT d.*, so.total_amount, pr.supplier, pr.object_name,
+                   u_seller.full_name as seller_name, u_buyer.full_name as buyer_name,
+                   u_buyer.telegram_id as buyer_telegram_id
+            FROM deliveries d
+            JOIN seller_offers so ON d.offer_id = so.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            JOIN users u_seller ON so.seller_id = u_seller.id
+            JOIN users u_buyer ON pr.buyer_id = u_buyer.id
+            WHERE d.id = %s
+        """, (delivery_id,))
+        delivery = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not delivery:
+            await callback_query.answer("❌ Доставка не найдена!")
+            return
+        
+        # Обновляем статус доставки
+        db.update_delivery_status(delivery_id, 'received')
+        
+        # Уведомляем заказчика
+        try:
+            await bot.send_message(
+                delivery['buyer_telegram_id'],
+                f"🎉 **Товарлар келди!**\n\n"
+                f"📦 Доставка #{delivery_id}\n"
+                f"🏢 Поставщик: {delivery['supplier']}\n"
+                f"🏗️ Объект: {delivery['object_name']}\n"
+                f"👤 Поставщик: {delivery['seller_name']}\n"
+                f"💵 Сумма: {delivery['total_amount']:,} сум\n"
+                f"📅 Время получения: {get_current_time()}\n\n"
+                f"✅ Товарлар складда тайёр. Олишингиз мумкин!"
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify buyer {delivery['buyer_telegram_id']}: {e}")
+        
+        # Обновляем сообщение склада
+        await callback_query.message.edit_text(
+            f"✅ **Товарлар қабул қилинди!**\n\n"
+            f"📦 Доставка #{delivery_id}\n"
+            f"📅 Время получения: {get_current_time()}\n\n"
+            f"✅ Заказчик уведомлен о прибытии товаров!"
+        )
+        await callback_query.answer("✅ Товары получены!")
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
+@router.callback_query(lambda c: c.data.startswith('contact_seller_'))
+async def process_contact_seller(callback_query: types.CallbackQuery):
+    """Связаться с поставщиком"""
+    try:
+        phone = callback_query.data.split('_')[2]
+        await callback_query.answer(f"📞 Телефон поставщика: {phone}")
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
+@router.callback_query(lambda c: c.data.startswith('contact_buyer_'))
+async def process_contact_buyer(callback_query: types.CallbackQuery):
+    """Связаться с заказчиком"""
+    try:
+        phone = callback_query.data.split('_')[2]
+        await callback_query.answer(f"📞 Телефон заказчика: {phone}")
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
+@router.callback_query(lambda c: c.data.startswith('ship_sent_'))
+async def process_shipment_sent(callback_query: types.CallbackQuery):
+    """Поставщик подтверждает отправку товаров"""
+    try:
+        delivery_id = int(callback_query.data.split('_')[2])
+        user = db.get_user(callback_query.from_user.id)
+        
+        if not user or user['role'] != 'seller':
+            await callback_query.answer("❌ Только поставщики могут подтверждать отправку!")
+            return
+        
+        # Получаем данные доставки
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT d.*, so.total_amount, pr.supplier, pr.object_name,
+                   u_seller.full_name as seller_name, u_buyer.full_name as buyer_name
+            FROM deliveries d
+            JOIN seller_offers so ON d.offer_id = so.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            JOIN users u_seller ON so.seller_id = u_seller.id
+            JOIN users u_buyer ON pr.buyer_id = u_buyer.id
+            WHERE d.id = %s
+        """, (delivery_id,))
+        delivery = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not delivery:
+            await callback_query.answer("❌ Доставка не найдена!")
+            return
+        
+        # Уведомляем всех складских работников
+        warehouse_users = db.get_users_by_role('warehouse')
+        for warehouse_user in warehouse_users:
+            try:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Товарлар келди", callback_data=f"goods_received_{delivery_id}")]
+                ])
+                
+                await bot.send_message(
+                    warehouse_user['telegram_id'],
+                    f"📦 **Товарлар складга келди!**\n\n"
+                    f"📦 Доставка #{delivery_id}\n"
+                    f"🏢 Поставщик: {delivery['supplier']}\n"
+                    f"🏗️ Объект: {delivery['object_name']}\n"
+                    f"👤 Поставщик: {delivery['seller_name']}\n"
+                    f"👤 Заказчик: {delivery['buyer_name']}\n"
+                    f"💵 Сумма: {delivery['total_amount']:,} сум\n"
+                    f"📅 Время: {get_current_time()}\n\n"
+                    f"✅ Илтимос, товарларни текширинг ва тўғридаги тугмани босинг:",
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify warehouse user {warehouse_user['telegram_id']}: {e}")
+        
+        # Обновляем сообщение поставщика
+        await callback_query.message.edit_text(
+            f"🚚 **Товарлар юборилди!**\n\n"
+            f"📦 Доставка #{delivery_id}\n"
+            f"📅 Время отправки: {get_current_time()}\n\n"
+            f"✅ Склад ходимларига хабар юборилди. Улар товарларни текшириб, тасдиқлашади."
+        )
+        await callback_query.answer("✅ Отправка подтверждена!")
         
     except Exception as e:
         await callback_query.answer(f"❌ Ошибка: {str(e)}")
@@ -781,50 +1088,75 @@ async def process_reject_offer(callback_query: types.CallbackQuery):
 @router.message()
 async def handle_text(message: types.Message, state: FSMContext):
     """Обработка текстовых сообщений"""
+    # Проверяем, не находится ли пользователь в процессе регистрации
+    current_state = await state.get_state()
+    if current_state and current_state.startswith('RegistrationStates'):
+        # Если пользователь в процессе регистрации, не обрабатываем команды меню
+        return
+    
     user = db.get_user(message.from_user.id)
     
     if not user or not user['is_approved']:
-        await message.answer("Пожалуйста, сначала зарегистрируйтесь с помощью /register")
+        await message.answer("Илтимос, аввал /register ёрдамида рўйхатдан ўтинг")
         return
     
+    # Проверяем, является ли это командой меню
     text = message.text
+    menu_commands = [
+        "ℹ️ Ёрдам",
+        "📋 Ариза яратиш", 
+        "📊 Менинг аризаларим",
+        "📦 Менинг буюртмаларим",
+        "📋 Фаол аризалар",
+        "💼 Менинг таклифларим",
+        "📦 Кутган етказиб беришлар"
+    ]
     
-    if text == "ℹ️ Помощь":
-        await show_help(message, user['role'])
-    elif text == "📋 Создать заявку" and user['role'] == 'buyer':
-        await start_purchase_request(message, state)
-    elif text == "📊 Мои заявки" and user['role'] == 'buyer':
-        await show_my_requests(message)
-    elif text == "📦 Мои заказы" and user['role'] == 'buyer':
-        await show_my_orders(message)
-    elif text == "📋 Активные заявки" and user['role'] == 'seller':
-        await show_active_requests(message)
-    elif text == "📦 Ожидающие доставки" and user['role'] == 'warehouse':
-        await show_pending_deliveries(message)
-    else:
-        await message.answer("Используйте кнопки меню для навигации.")
+    # Если это команда меню, обрабатываем её
+    if text in menu_commands:
+        if text == "ℹ️ Ёрдам":
+            await show_help(message, user['role'])
+        elif text == "📋 Ариза яратиш" and user['role'] == 'buyer':
+            await start_purchase_request(message, state)
+        elif text == "📊 Менинг аризаларим" and user['role'] == 'buyer':
+            await show_my_requests(message)
+        elif text == "📦 Менинг буюртмаларим" and user['role'] == 'buyer':
+            await show_my_orders(message)
+        elif text == "📋 Фаол аризалар" and user['role'] == 'seller':
+            await show_active_requests(message)
+        elif text == "💼 Менинг таклифларим" and user['role'] == 'seller':
+            await show_my_offers(message)
+        elif text == "📦 Кутган етказиб беришлар" and user['role'] == 'warehouse':
+            await show_pending_deliveries(message)
+        elif text == "✅ Қабул қилинган товарлар" and user['role'] == 'warehouse':
+            await show_received_deliveries(message)
+        else:
+            await message.answer("❌ У вас нет прав для этой функции.")
+        return
+    
+
 
 async def show_help(message: types.Message, role: str):
     """Показать справку"""
-    help_text = "📚 Справка по использованию бота:\n\n"
+    help_text = "📚 Ботдан фойдаланиш бўйича маълумот:\n\n"
     
     if role == 'buyer':
         help_text += "👤 Заказчик:\n"
-        help_text += "• Создавайте заявки на покупку товаров\n"
-        help_text += "• Получайте предложения от поставщиков\n"
-        help_text += "• Отслеживайте статус заказов\n\n"
+        help_text += "• Товар сотиб олиш учун аризалар яратинг\n"
+        help_text += "• Поставщиклардан таклифлар олинг\n"
+        help_text += "• Буюртмалар статусини кузатинг\n\n"
     elif role == 'seller':
         help_text += "🏪 Поставщик:\n"
-        help_text += "• Просматривайте активные заявки\n"
-        help_text += "• Отправляйте предложения заказчикам\n"
-        help_text += "• Отслеживайте свои предложения\n\n"
+        help_text += "• Фаол аризаларни кўринг\n"
+        help_text += "• Заказчикларга таклифлар юборинг\n"
+        help_text += "• Ўзингизнинг таклифларингизни кузатинг\n\n"
     elif role == 'warehouse':
         help_text += "🏭 Зав. Склад:\n"
-        help_text += "• Принимайте товары от поставщиков\n"
-        help_text += "• Подтверждайте получение товаров\n"
-        help_text += "• Уведомляйте заказчиков\n\n"
+        help_text += "• Поставщиклардан товарларни қабул қилинг\n"
+        help_text += "• Товарларни олишни тасдиқланг\n"
+        help_text += "• Заказчикларни хабардор қилинг\n\n"
     
-    help_text += "⏰ Время: " + get_current_time()
+    help_text += "⏰ Вақт: " + get_current_time()
     await message.answer(help_text)
 
 async def start_purchase_request(message: types.Message, state: FSMContext):
@@ -844,7 +1176,7 @@ async def show_my_requests(message: types.Message):
     """Показать заявки заказчика"""
     user = db.get_user(message.from_user.id)
     if not user or user['role'] != 'buyer':
-        await message.answer("❌ Только заказчики могут просматривать заявки.")
+        await message.answer("❌ Фақат заказчиклар аризаларни кўра олади.")
         return
     
     # Получаем заявки пользователя
@@ -874,7 +1206,7 @@ async def show_my_requests(message: types.Message):
     conn.close()
     
     if not requests:
-        await message.answer("📭 У вас пока нет заявок.")
+        await message.answer("📭 Ҳозирча аризаларингиз йўқ.")
         return
     
     for req in requests[:5]:  # Показываем последние 5 заявок
@@ -904,7 +1236,7 @@ async def show_active_requests(message: types.Message):
     """Показать активные заявки для поставщиков"""
     user = db.get_user(message.from_user.id)
     if not user or user['role'] != 'seller':
-        await message.answer("❌ Только поставщики могут просматривать активные заявки.")
+        await message.answer("❌ Фақат поставщиклар фаол аризаларни кўра олади.")
         return
     
     # Получаем активные заявки
@@ -936,7 +1268,7 @@ async def show_active_requests(message: types.Message):
     conn.close()
     
     if not requests:
-        await message.answer("📭 Нет активных заявок.")
+        await message.answer("📭 Фаол аризалар йўқ.")
         return
     
     # Создаем Excel файл с активными заявками
@@ -983,14 +1315,14 @@ async def show_my_orders(message: types.Message):
     """Показать одобренные заказы заказчика"""
     user = db.get_user(message.from_user.id)
     if not user or user['role'] != 'buyer':
-        await message.answer("❌ Только заказчики могут просматривать заказы.")
+        await message.answer("❌ Фақат заказчиклар буюртмаларни кўра олади.")
         return
     
     # Получаем одобренные предложения
     approved_offers = db.get_approved_offers_for_buyer(user['id'])
     
     if not approved_offers:
-        await message.answer("📭 У вас пока нет одобренных заказов.")
+        await message.answer("📭 Ҳозирча тасдиқланган буюртмаларингиз йўқ.")
         return
     
     # Создаем Excel файл с одобренными заказами
@@ -1028,14 +1360,125 @@ async def show_my_orders(message: types.Message):
         
         await message.answer(text)
 
+async def show_my_offers(message: types.Message):
+    """Показать предложения поставщика"""
+    user = db.get_user(message.from_user.id)
+    if not user or user['role'] != 'seller':
+        await message.answer("❌ Фақат поставщиклар ўз таклифларини кўра олади.")
+        return
+    
+    # Получаем предложения пользователя
+    conn = db.get_connection()
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cursor.execute("""
+        SELECT so.*, pr.supplier, pr.object_name
+        FROM seller_offers so
+        JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+        WHERE so.seller_id = %s 
+        ORDER BY so.created_at DESC
+    """, (user['id'],))
+    offers = cursor.fetchall()
+    
+    cursor.close()
+    conn.close()
+    
+    if not offers:
+        await message.answer("📭 Ҳозирча таклифларингиз йўқ.")
+        return
+    
+    for offer in offers[:5]:  # Показываем последние 5 предложений
+        status_text = {
+            'pending': '⏳ Кутмоқда',
+            'approved': '✅ Тасдиқланган',
+            'rejected': '❌ Рад этилган'
+        }.get(offer['status'], '❓ Номаълум')
+        
+        text = f"💼 **Таклиф #{offer['id']}**\n\n"
+        text += f"🏢 Поставщик: {offer['supplier']}\n"
+        text += f"🏗️ Объект: {offer['object_name']}\n"
+        text += f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
+        text += f"📊 Статус: {status_text}\n"
+        text += f"📅 Сана: {offer['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
+        
+        await message.answer(text)
+
 async def show_pending_deliveries(message: types.Message):
     """Показать ожидающие доставки для склада"""
     user = db.get_user(message.from_user.id)
     if not user or user['role'] != 'warehouse':
-        await message.answer("❌ Только люди на складе могут просматривать доставки.")
+        await message.answer("❌ Фақат склад ходимлари етказиб беришларни кўра олади.")
         return
     
-    await message.answer("📦 Функция просмотра доставок в разработке...")
+    # Получаем ожидающие доставки
+    deliveries = db.get_pending_deliveries()
+    
+    if not deliveries:
+        await message.answer("📭 Ҳозирча кутган етказиб беришлар йўқ.")
+        return
+    
+    await message.answer(f"📦 Кутган етказиб беришлар: {len(deliveries)} та")
+    
+    for delivery in deliveries[:10]:  # Показываем последние 10 доставок
+        text = f"📦 **Етказиб бериш #{delivery['id']}**\n\n"
+        text += f"🏢 Поставщик: {delivery['supplier']}\n"
+        text += f"🏗️ Объект: {delivery['object_name']}\n"
+        text += f"👤 Поставщик: {delivery['seller_name']}\n"
+        text += f"📞 Телефон поставщика: {delivery['seller_phone']}\n"
+        text += f"👤 Заказчик: {delivery['buyer_name']}\n"
+        text += f"📞 Телефон заказчика: {delivery['buyer_phone']}\n"
+        text += f"💵 Общая сумма: {delivery['total_amount']:,} сум\n"
+        text += f"📅 Дата создания: {delivery['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
+        
+        # Добавляем кнопки для управления доставкой
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Доставлено", callback_data=f"deliver_{delivery['id']}"),
+                InlineKeyboardButton(text="📞 Связаться с поставщиком", callback_data=f"contact_seller_{delivery['seller_phone']}")
+            ],
+            [
+                InlineKeyboardButton(text="📞 Связаться с заказчиком", callback_data=f"contact_buyer_{delivery['buyer_phone']}")
+            ]
+        ])
+        
+        await message.answer(text, reply_markup=keyboard)
+
+async def show_received_deliveries(message: types.Message):
+    """Показать принятые доставки для склада"""
+    user = db.get_user(message.from_user.id)
+    if not user or user['role'] != 'warehouse':
+        await message.answer("❌ Фақат склад ходимлари қабул қилинган товарларни кўра олади.")
+        return
+    
+    # Получаем принятые доставки
+    deliveries = db.get_received_deliveries()
+    
+    if not deliveries:
+        await message.answer("📭 Ҳозирча қабул қилинган товарлар йўқ.")
+        return
+    
+    await message.answer(f"✅ Қабул қилинган товарлар: {len(deliveries)} та")
+    
+    for delivery in deliveries[:10]:  # Показываем последние 10 доставок
+        text = f"✅ **Қабул қилинган товарлар #{delivery['id']}**\n\n"
+        text += f"🏢 Поставщик: {delivery['supplier']}\n"
+        text += f"🏗️ Объект: {delivery['object_name']}\n"
+        text += f"👤 Поставщик: {delivery['seller_name']}\n"
+        text += f"👤 Заказчик: {delivery['buyer_name']}\n"
+        text += f"💵 Общая сумма: {delivery['total_amount']:,} сум\n"
+        text += f"📅 Дата принятия: {delivery['received_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
+        
+        # Детали товаров
+        text += "📋 **Товары:**\n"
+        for i, item in enumerate(delivery['items'], 1):
+            text += f"{i}. {item['product_name']}\n"
+            text += f"   📊 Количество: {item['quantity']} {item['unit']}\n"
+            text += f"   💰 Цена за единицу: {item['price_per_unit']:,} сум\n"
+            text += f"   💵 Сумма: {item['total_price']:,} сум\n"
+            if item['material_description']:
+                text += f"   📝 Описание: {item['material_description']}\n"
+            text += "\n"
+        
+        await message.answer(text)
 
 # Запуск бота
 async def main():
