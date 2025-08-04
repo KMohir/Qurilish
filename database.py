@@ -1,284 +1,272 @@
 import psycopg2
 import psycopg2.extras
 from datetime import datetime
-from config import DB_CONFIG
+import pytz
+from config import DB_CONFIG, TIMEZONE
 
 class Database:
     def __init__(self):
         self.config = DB_CONFIG
+        self.timezone = pytz.timezone(TIMEZONE)
     
     def get_connection(self):
-        """Получение соединения с базой данных"""
         return psycopg2.connect(**self.config)
     
-    async def create_user(self, telegram_id, username, full_name, phone_number, role):
-        """Создание нового пользователя"""
+    def create_tables(self):
+        """Создание всех необходимых таблиц"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO users (telegram_id, username, full_name, phone_number, role)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (telegram_id) DO UPDATE SET
-                    username = EXCLUDED.username,
-                    full_name = EXCLUDED.full_name,
-                    phone_number = EXCLUDED.phone_number,
-                    role = EXCLUDED.role
-                    RETURNING id
-                """, (telegram_id, username, full_name, phone_number, role))
-                user_id = cursor.fetchone()[0]
-                conn.commit()
-                return user_id
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        # Таблица пользователей
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                username VARCHAR(255),
+                first_name VARCHAR(255),
+                last_name VARCHAR(255),
+                phone VARCHAR(20),
+                role VARCHAR(50) NOT NULL,
+                is_approved BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Таблица заявок покупателей
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_requests (
+                id SERIAL PRIMARY KEY,
+                buyer_id INTEGER REFERENCES users(id),
+                supplier_name VARCHAR(255),
+                object_name VARCHAR(255),
+                product_name VARCHAR(255),
+                quantity DECIMAL,
+                unit VARCHAR(50),
+                material_description TEXT,
+                status VARCHAR(50) DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Таблица предложений продавцов
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS seller_offers (
+                id SERIAL PRIMARY KEY,
+                request_id INTEGER REFERENCES purchase_requests(id),
+                seller_id INTEGER REFERENCES users(id),
+                price DECIMAL,
+                total_amount DECIMAL,
+                status VARCHAR(50) DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Таблица доставки
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deliveries (
+                id SERIAL PRIMARY KEY,
+                offer_id INTEGER REFERENCES seller_offers(id),
+                warehouse_user_id INTEGER REFERENCES users(id),
+                buyer_id INTEGER REFERENCES users(id),
+                status VARCHAR(50) DEFAULT 'pending',
+                received_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Таблицы базы данных созданы успешно!")
     
-    async def get_user(self, telegram_id):
-        """Получение пользователя по telegram_id"""
+    def add_user(self, telegram_id, username, first_name, last_name, phone, role):
+        """Добавление нового пользователя"""
         conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM users WHERE telegram_id = %s
-                """, (telegram_id,))
-                return cursor.fetchone()
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли пользователь
+        cursor.execute("SELECT id, role FROM users WHERE telegram_id = %s", (telegram_id,))
+        existing_user = cursor.fetchone()
+        
+        if existing_user:
+            # Обновляем существующего пользователя
+            cursor.execute("""
+                UPDATE users SET 
+                username = %s, first_name = %s, last_name = %s, 
+                phone = %s, role = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE telegram_id = %s
+            """, (username, first_name, last_name, phone, role, telegram_id))
+            user_id = existing_user[0]
+        else:
+            # Добавляем нового пользователя
+            is_approved = True if role in ['seller'] else False
+            cursor.execute("""
+                INSERT INTO users (telegram_id, username, first_name, last_name, phone, role, is_approved)
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (telegram_id, username, first_name, last_name, phone, role, is_approved))
+            user_id = cursor.fetchone()[0]
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return user_id
     
-    async def approve_user(self, telegram_id):
+    def get_user(self, telegram_id):
+        """Получение пользователя по Telegram ID"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
+        user = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        return user
+    
+    def get_users_by_role(self, role):
+        """Получение всех пользователей по роли"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("SELECT * FROM users WHERE role = %s AND is_approved = TRUE", (role,))
+        users = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        return users
+    
+    def approve_user(self, telegram_id):
         """Одобрение пользователя администратором"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE users SET is_approved = TRUE WHERE telegram_id = %s
-                """, (telegram_id,))
-                conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE users SET is_approved = TRUE, updated_at = CURRENT_TIMESTAMP
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
     
-    async def get_sellers(self):
-        """Получение всех продавцов"""
+    def add_purchase_request(self, buyer_id, supplier_name, object_name, product_name, quantity, unit, material_description):
+        """Добавление заявки на покупку"""
         conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM users WHERE role = 'seller' AND is_approved = TRUE
-                """)
-                return cursor.fetchall()
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO purchase_requests (buyer_id, supplier_name, object_name, product_name, quantity, unit, material_description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (buyer_id, supplier_name, object_name, product_name, quantity, unit, material_description))
+        
+        request_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return request_id
     
-    async def create_purchase_request(self, buyer_id, supplier, object_name, product_name, 
-                                   quantity, unit, material_description, request_type):
-        """Создание заявки на покупку"""
+    def add_seller_offer(self, request_id, seller_id, price, total_amount):
+        """Добавление предложения продавца"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO purchase_requests 
-                    (buyer_id, supplier, object_name, product_name, quantity, unit, material_description, request_type)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                """, (buyer_id, supplier, object_name, product_name, quantity, unit, material_description, request_type))
-                request_id = cursor.fetchone()[0]
-                conn.commit()
-                return request_id
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO seller_offers (request_id, seller_id, price, total_amount)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (request_id, seller_id, price, total_amount))
+        
+        offer_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return offer_id
     
-    async def create_seller_offer(self, purchase_request_id, seller_id, price, total_amount, offer_type):
-        """Создание предложения продавца"""
+    def get_pending_requests(self):
+        """Получение активных заявок"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO seller_offers 
-                    (purchase_request_id, seller_id, price, total_amount, offer_type)
-                    VALUES (%s, %s, %s, %s, %s)
-                    RETURNING id
-                """, (purchase_request_id, seller_id, price, total_amount, offer_type))
-                offer_id = cursor.fetchone()[0]
-                conn.commit()
-                return offer_id
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT pr.*, u.first_name, u.last_name, u.phone
+            FROM purchase_requests pr
+            JOIN users u ON pr.buyer_id = u.id
+            WHERE pr.status = 'active'
+            ORDER BY pr.created_at DESC
+        """)
+        
+        requests = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return requests
     
-    async def get_purchase_requests_for_buyer(self, buyer_id):
-        """Получение заявок покупателя"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM purchase_requests WHERE buyer_id = %s ORDER BY created_at DESC
-                """, (buyer_id,))
-                return cursor.fetchall()
-        finally:
-            conn.close()
-    
-    async def get_offers_for_request(self, purchase_request_id):
+    def get_offers_for_request(self, request_id):
         """Получение предложений для заявки"""
         conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT so.*, u.full_name, u.phone_number 
-                    FROM seller_offers so
-                    JOIN users u ON so.seller_id = u.id
-                    WHERE so.purchase_request_id = %s
-                    ORDER BY so.created_at DESC
-                """, (purchase_request_id,))
-                return cursor.fetchall()
-        finally:
-            conn.close()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT so.*, u.first_name, u.last_name, u.phone
+            FROM seller_offers so
+            JOIN users u ON so.seller_id = u.id
+            WHERE so.request_id = %s
+            ORDER BY so.created_at DESC
+        """, (request_id,))
+        
+        offers = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return offers
     
-    async def get_seller_offers(self, seller_id):
-        """Получение предложений продавца"""
+    def update_offer_status(self, offer_id, status):
+        """Обновление статуса предложения"""
         conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM seller_offers WHERE seller_id = %s ORDER BY created_at DESC
-                """, (seller_id,))
-                return cursor.fetchall()
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE seller_offers SET status = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        """, (status, offer_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
     
-    async def approve_offer(self, offer_id):
-        """Одобрение предложения продавца"""
+    def add_delivery(self, offer_id, warehouse_user_id, buyer_id):
+        """Создание записи доставки"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE seller_offers SET status = 'approved' WHERE id = %s
-                """, (offer_id,))
-                conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO deliveries (offer_id, warehouse_user_id, buyer_id)
+            VALUES (%s, %s, %s) RETURNING id
+        """, (offer_id, warehouse_user_id, buyer_id))
+        
+        delivery_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return delivery_id
     
-    async def create_delivery(self, offer_id, warehouse_user_id):
-        """Создание записи о доставке"""
+    def update_delivery_status(self, delivery_id, status):
+        """Обновление статуса доставки"""
         conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO deliveries (offer_id, warehouse_user_id)
-                    VALUES (%s, %s)
-                    RETURNING id
-                """, (offer_id, warehouse_user_id))
-                delivery_id = cursor.fetchone()[0]
-                conn.commit()
-                return delivery_id
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
-    
-    async def mark_delivery_received(self, delivery_id):
-        """Отметка получения товара на складе"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE deliveries 
-                    SET delivery_status = 'received', received_at = %s
-                    WHERE id = %s
-                """, (datetime.now(), delivery_id))
-                conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
-    
-    async def get_pending_deliveries(self):
-        """Получение ожидающих доставок"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT d.*, so.*, u.full_name as seller_name, u.phone_number as seller_phone
-                    FROM deliveries d
-                    JOIN seller_offers so ON d.offer_id = so.id
-                    JOIN users u ON so.seller_id = u.id
-                    WHERE d.delivery_status = 'pending'
-                    ORDER BY d.created_at DESC
-                """)
-                return cursor.fetchall()
-        finally:
-            conn.close()
-    
-    async def get_delivery_info(self, delivery_id):
-        """Получение информации о доставке"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT d.*, so.*, pr.buyer_id, u.telegram_id as buyer_telegram_id
-                    FROM deliveries d
-                    JOIN seller_offers so ON d.offer_id = so.id
-                    JOIN purchase_requests pr ON so.purchase_request_id = pr.id
-                    JOIN users u ON pr.buyer_id = u.id
-                    WHERE d.id = %s
-                """, (delivery_id,))
-                return cursor.fetchone()
-        finally:
-            conn.close()
-    
-    async def get_pending_users(self):
-        """Получение пользователей ожидающих одобрения"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT * FROM users WHERE is_approved = FALSE AND role != 'seller'
-                    ORDER BY created_at DESC
-                """)
-                return cursor.fetchall()
-        finally:
-            conn.close()
-    
-    async def reject_offer(self, offer_id):
-        """Отклонение предложения продавца"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE seller_offers SET status = 'rejected' WHERE id = %s
-                """, (offer_id,))
-                conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
-    
-    async def get_offer_info(self, offer_id):
-        """Получение информации о предложении"""
-        conn = self.get_connection()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                    SELECT so.*, u.telegram_id as seller_telegram_id
-                    FROM seller_offers so
-                    JOIN users u ON so.seller_id = u.id
-                    WHERE so.id = %s
-                """, (offer_id,))
-                return cursor.fetchone()
-        finally:
-            conn.close() 
+        cursor = conn.cursor()
+        
+        if status == 'received':
+            cursor.execute("""
+                UPDATE deliveries SET status = %s, received_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (status, delivery_id))
+        else:
+            cursor.execute("""
+                UPDATE deliveries SET status = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (status, delivery_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close() 

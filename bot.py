@@ -1,487 +1,404 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
+from datetime import datetime
+import pytz
+from aiogram import Bot, Dispatcher, types, Router
 from aiogram.filters import Command
-from aiogram.types import FSInputFile
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import BOT_TOKEN, ROLES, OFFER_STATUSES
+from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE
 from database import Database
-from keyboards import *
-from states import *
-from utils import *
+import pandas as pd
+import io
+import psycopg2.extras
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+router = Router()
+dp.include_router(router)
+
+# Инициализация базы данных
 db = Database()
 
-# Словарь для хранения временных данных пользователей
-user_data = {}
+# Состояния FSM
+class RegistrationStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_phone = State()
+    waiting_for_role = State()
 
-@dp.message(Command("start"))
+class PurchaseRequestStates(StatesGroup):
+    waiting_for_supplier = State()
+    waiting_for_object = State()
+    waiting_for_product = State()
+    waiting_for_quantity = State()
+    waiting_for_unit = State()
+    waiting_for_description = State()
+
+class SellerOfferStates(StatesGroup):
+    waiting_for_price = State()
+    waiting_for_total = State()
+
+# Временная зона
+timezone = pytz.timezone(TIMEZONE)
+
+def is_admin(user_id: int) -> bool:
+    """Проверка является ли пользователь администратором"""
+    return user_id in ADMIN_IDS
+
+def get_current_time():
+    """Получение текущего времени в узбекской временной зоне"""
+    return datetime.now(timezone).strftime("%d.%m.%Y %H:%M")
+
+# Клавиатуры
+def get_main_keyboard(user_role: str):
+    """Главная клавиатура в зависимости от роли"""
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    if user_role == 'buyer':
+        keyboard.add(KeyboardButton("📋 Создать заявку"))
+        keyboard.add(KeyboardButton("📊 Мои заявки"))
+        keyboard.add(KeyboardButton("📦 Мои заказы"))
+    elif user_role == 'seller':
+        keyboard.add(KeyboardButton("📋 Активные заявки"))
+        keyboard.add(KeyboardButton("💼 Мои предложения"))
+    elif user_role == 'warehouse':
+        keyboard.add(KeyboardButton("📦 Ожидающие доставки"))
+        keyboard.add(KeyboardButton("✅ Принятые товары"))
+    elif user_role == 'admin':
+        keyboard.add(KeyboardButton("👥 Управление пользователями"))
+        keyboard.add(KeyboardButton("📊 Статистика"))
+    
+    keyboard.add(KeyboardButton("ℹ️ Помощь"))
+    return keyboard
+
+def get_role_keyboard():
+    """Клавиатура выбора роли"""
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(KeyboardButton("👤 Покупатель"))
+    keyboard.add(KeyboardButton("🏪 Продавец"))
+    keyboard.add(KeyboardButton("🏭 Человек на складе"))
+    return keyboard
+
+# Обработчики команд
+@router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     """Обработчик команды /start"""
-    user = await db.get_user(message.from_user.id)
+    user = db.get_user(message.from_user.id)
     
-    if user is None:
-        # Новый пользователь - регистрация
+    if user:
+        if user['is_approved']:
+            await message.answer(
+                f"Добро пожаловать, {user['first_name']}!\n"
+                f"Ваша роль: {user['role']}\n"
+                f"Время: {get_current_time()}",
+                reply_markup=get_main_keyboard(user['role'])
+            )
+        else:
+            await message.answer(
+                "Ваша заявка на регистрацию ожидает одобрения администратора. "
+                "Вы получите уведомление, когда администратор одобрит вашу заявку."
+            )
+    else:
         await message.answer(
-            "👋 Добро пожаловать в систему закупок SFX!\n\n"
+            "Добро пожаловать в систему SFX Savdo!\n"
             "Для начала работы необходимо зарегистрироваться.\n"
             "Введите ваше полное имя:"
         )
         await state.set_state(RegistrationStates.waiting_for_name)
-    else:
-        # Существующий пользователь
-        if user['is_approved']:
-            await show_main_menu(message)
-        else:
-            await message.answer(
-                "⏳ Ваша регистрация находится на рассмотрении администратора.\n"
-                "Ожидайте одобрения для доступа к системе."
-            )
 
-@dp.message(RegistrationStates.waiting_for_name)
+@router.message(Command("register"))
+async def cmd_register(message: types.Message, state: FSMContext):
+    """Обработчик команды /register"""
+    user = db.get_user(message.from_user.id)
+    
+    if user and user['is_approved']:
+        await message.answer("Вы уже зарегистрированы и одобрены!")
+        return
+    
+    await message.answer("Введите ваше полное имя:")
+    await state.set_state(RegistrationStates.waiting_for_name)
+
+# Обработчики регистрации
+@router.message(RegistrationStates.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     """Обработка ввода имени"""
     await state.update_data(name=message.text)
-    await message.answer(
-        "📞 Теперь введите ваш номер телефона в формате:\n"
-        "+998XXXXXXXXX или 998XXXXXXXXX"
-    )
+    await message.answer("Введите ваш номер телефона:")
     await state.set_state(RegistrationStates.waiting_for_phone)
 
-@dp.message(RegistrationStates.waiting_for_phone)
+@router.message(RegistrationStates.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
     """Обработка ввода телефона"""
-    phone = validate_phone_number(message.text)
-    if phone is None:
-        await message.answer(
-            "❌ Неверный формат номера телефона!\n"
-            "Пожалуйста, введите номер в формате:\n"
-            "+998XXXXXXXXX или 998XXXXXXXXX"
-        )
-        return
-    
-    await state.update_data(phone=phone)
+    await state.update_data(phone=message.text)
     await message.answer(
-        "👤 Выберите вашу роль в системе:",
+        "Выберите вашу роль:",
         reply_markup=get_role_keyboard()
     )
     await state.set_state(RegistrationStates.waiting_for_role)
 
-@dp.message(RegistrationStates.waiting_for_role)
+@router.message(RegistrationStates.waiting_for_role)
 async def process_role(message: types.Message, state: FSMContext):
     """Обработка выбора роли"""
-    role_map = {
+    role_mapping = {
         "👤 Покупатель": "buyer",
         "🏪 Продавец": "seller", 
         "🏭 Человек на складе": "warehouse"
     }
     
-    if message.text not in role_map:
-        await message.answer("❌ Пожалуйста, выберите роль из предложенных вариантов.")
+    if message.text not in role_mapping:
+        await message.answer("Пожалуйста, выберите роль из предложенных вариантов:")
         return
     
-    role = role_map[message.text]
+    role = role_mapping[message.text]
     user_data = await state.get_data()
     
-    # Создание пользователя в базе данных
-    try:
-        await db.create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            full_name=user_data['name'],
-            phone_number=user_data['phone'],
-            role=role
-        )
-        
-        if role == "seller":
-            # Продавцы не требуют одобрения
-            await db.approve_user(message.from_user.id)
-            await message.answer(
-                "✅ Регистрация успешно завершена!\n"
-                "Теперь вы можете использовать систему.",
-                reply_markup=get_main_keyboard()
-            )
-        else:
-            # Покупатели и люди на складе требуют одобрения
-            await message.answer(
-                "✅ Регистрация успешно завершена!\n"
-                "⏳ Ожидайте одобрения администратора для доступа к системе."
-            )
-            
-            # Уведомление администраторов
-            await notify_admins_new_user(message.from_user.id, user_data['name'], role)
-            
-    except Exception as e:
-        await message.answer("❌ Ошибка при регистрации. Попробуйте позже.")
-        logging.error(f"Registration error: {e}")
-
-async def notify_admins_new_user(telegram_id, name, role):
-    """Уведомление администраторов о новом пользователе"""
-    # Здесь нужно получить всех администраторов из базы данных
-    # Пока используем хардкод
-    admin_ids = [123456789]  # Замените на реальные ID администраторов
-    
-    for admin_id in admin_ids:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"👤 Новый пользователь ожидает одобрения:\n\n"
-                f"Имя: {name}\n"
-                f"Роль: {ROLES.get(role, role)}\n"
-                f"ID: {telegram_id}",
-                reply_markup=get_approval_keyboard(telegram_id)
-            )
-        except Exception as e:
-            logging.error(f"Failed to notify admin {admin_id}: {e}")
-
-@dp.message(lambda message: message.text == "📋 Создать заявку")
-async def create_request(message: types.Message):
-    """Создание заявки на покупку"""
-    user = await db.get_user(message.from_user.id)
-    if user['role'] != 'buyer':
-        await message.answer("❌ Только покупатели могут создавать заявки.")
-        return
-    
-    await message.answer(
-        "📋 Выберите формат заявки:",
-        reply_markup=get_request_type_keyboard()
+    # Регистрация пользователя
+    user_id = db.add_user(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        first_name=user_data['name'],
+        last_name="",
+        phone=user_data['phone'],
+        role=role
     )
-    await state.set_state(RequestStates.waiting_for_request_type)
-
-@dp.message(RequestStates.waiting_for_request_type)
-async def process_request_type(message: types.Message, state: FSMContext):
-    """Обработка выбора типа заявки"""
-    if message.text == "📊 Excel файл":
-        # Создаем шаблон Excel
-        excel_file = create_excel_template()
-        await message.answer_document(
-            FSInputFile(excel_file, filename="заявка_шаблон.xlsx"),
-            caption="📊 Заполните этот шаблон и отправьте обратно:"
-        )
-        await state.set_state(RequestStates.waiting_for_excel_file)
-        
-    elif message.text == "📝 Текстовый формат":
+    
+    if role == 'seller':
+        # Продавцы автоматически одобряются
+        db.approve_user(message.from_user.id)
         await message.answer(
-            "📝 Введите данные заявки в текстовом формате.\n\n"
-            "Формат:\n"
-            "Поставщик: [название поставщика]\n"
-            "Объект: [название объекта]\n"
-            "Товар: [название товара]\n"
-            "Количество: [число]\n"
-            "Единица: [шт/кг/м и т.д.]\n"
-            "Описание: [дополнительная информация]"
+            "Регистрация успешно завершена! Вы можете начать работу.",
+            reply_markup=get_main_keyboard(role)
         )
-        await state.set_state(RequestStates.waiting_for_text_request)
-        
-    elif message.text == "🔙 Назад":
-        await show_main_menu(message)
     else:
-        await message.answer("❌ Пожалуйста, выберите формат из предложенных вариантов.")
-
-@dp.message(RequestStates.waiting_for_excel_file, F.content_type == "document")
-async def process_excel_request(message: types.Message, state: FSMContext):
-    """Обработка Excel файла с заявкой"""
-    try:
-        # Скачиваем файл
-        file = await bot.get_file(message.document.file_id)
-        file_content = await bot.download_file(file.file_path)
+        # Покупатели и люди на складе требуют одобрения админа
+        await message.answer(
+            "Регистрация завершена! Ваша заявка отправлена администратору на одобрение. "
+            "Вы получите уведомление, когда администратор одобрит вашу заявку."
+        )
         
-        # Парсим Excel
-        requests = parse_excel_request(file_content.read())
-        
-        if not requests:
-            await message.answer("❌ Файл пуст или имеет неверный формат.")
-            return
-        
-        # Сохраняем заявки в базе данных
-        user = await db.get_user(message.from_user.id)
-        for request_data in requests:
-            await db.create_purchase_request(
-                buyer_id=user['id'],
-                supplier=request_data['supplier'],
-                object_name=request_data['object_name'],
-                product_name=request_data['product_name'],
-                quantity=request_data['quantity'],
-                unit=request_data['unit'],
-                material_description=request_data['material_description'],
-                request_type='excel'
-            )
-        
-        # Отправляем всем продавцам
-        sellers = await db.get_sellers()
-        for seller in sellers:
+        # Уведомление администраторов
+        for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
-                    seller['telegram_id'],
-                    f"📋 Новая заявка на покупку!\n\n{format_request_text(requests[0])}"
+                    admin_id,
+                    f"🔔 Новая заявка на регистрацию!\n"
+                    f"Имя: {user_data['name']}\n"
+                    f"Телефон: {user_data['phone']}\n"
+                    f"Роль: {role}\n"
+                    f"Telegram ID: {message.from_user.id}"
                 )
             except Exception as e:
-                logging.error(f"Failed to send request to seller {seller['telegram_id']}: {e}")
-        
-        await message.answer(
-            f"✅ Заявка успешно создана и отправлена {len(sellers)} продавцам!",
-            reply_markup=get_main_keyboard()
-        )
-        await state.clear()
-        
-    except Exception as e:
-        await message.answer(f"❌ Ошибка при обработке файла: {str(e)}")
-
-@dp.message(RequestStates.waiting_for_text_request)
-async def process_text_request(message: types.Message, state: FSMContext):
-    """Обработка текстовой заявки"""
-    # Простой парсинг текста (можно улучшить)
-    text = message.text.lower()
+                logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
     
-    # Извлекаем данные из текста
-    supplier = extract_value(text, "поставщик:")
-    object_name = extract_value(text, "объект:")
-    product_name = extract_value(text, "товар:")
-    quantity = extract_value(text, "количество:")
-    unit = extract_value(text, "единица:")
-    description = extract_value(text, "описание:")
-    
-    if not all([supplier, object_name, product_name, quantity]):
-        await message.answer(
-            "❌ Не все обязательные поля заполнены.\n"
-            "Пожалуйста, укажите: поставщик, объект, товар, количество."
-        )
-        return
-    
-    # Сохраняем в базе данных
-    user = await db.get_user(message.from_user.id)
-    await db.create_purchase_request(
-        buyer_id=user['id'],
-        supplier=supplier,
-        object_name=object_name,
-        product_name=product_name,
-        quantity=float(quantity),
-        unit=unit,
-        material_description=description,
-        request_type='text'
-    )
-    
-    # Отправляем всем продавцам
-    sellers = await db.get_sellers()
-    for seller in sellers:
-        try:
-            request_data = {
-                'buyer': user['full_name'],
-                'supplier': supplier,
-                'object_name': object_name,
-                'product_name': product_name,
-                'quantity': quantity,
-                'unit': unit,
-                'material_description': description
-            }
-            message_text = f"📋 Новая заявка на покупку!\n\n{format_request_text(request_data)}"
-            await bot.send_message(seller['telegram_id'], message_text)
-        except Exception as e:
-            logging.error(f"Failed to send request to seller {seller['telegram_id']}: {e}")
-    
-    await message.answer(
-        f"✅ Заявка успешно создана и отправлена {len(sellers)} продавцам!",
-        reply_markup=get_main_keyboard()
-    )
     await state.clear()
 
-def extract_value(text, key):
-    """Извлечение значения из текста по ключу"""
-    try:
-        start = text.find(key) + len(key)
-        end = text.find('\n', start)
-        if end == -1:
-            end = len(text)
-        return text[start:end].strip()
-    except:
-        return ""
+# Административные команды
+@router.message(Command("admin"))
+async def cmd_admin(message: types.Message):
+    """Панель администратора"""
+    if not is_admin(message.from_user.id):
+        await message.answer("У вас нет прав администратора!")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Пользователи ожидающие одобрения", callback_data="admin_pending_users")],
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="➕ Добавить покупателя", callback_data="admin_add_buyer")],
+        [InlineKeyboardButton(text="➕ Добавить человека на складе", callback_data="admin_add_warehouse")]
+    ])
+    
+    await message.answer("Панель администратора:", reply_markup=keyboard)
 
-@dp.message(lambda message: message.text == "📊 Мои заявки")
-async def show_my_requests(message: types.Message):
-    """Показать заявки пользователя"""
-    user = await db.get_user(message.from_user.id)
-    if user['role'] != 'buyer':
-        await message.answer("❌ Только покупатели могут просматривать заявки.")
+@router.callback_query(lambda c: c.data.startswith('admin_'))
+async def process_admin_callback(callback_query: types.CallbackQuery):
+    """Обработка административных callback'ов"""
+    if not is_admin(callback_query.from_user.id):
+        await callback_query.answer("У вас нет прав администратора!")
         return
     
-    requests = await db.get_purchase_requests_for_buyer(user['id'])
+    action = callback_query.data
     
-    if not requests:
-        await message.answer("📭 У вас пока нет заявок.")
-        return
-    
-    for req in requests[:5]:  # Показываем последние 5 заявок
-        offers = await db.get_offers_for_request(req['id'])
+    if action == "admin_pending_users":
+        # Получение пользователей ожидающих одобрения
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT * FROM users 
+            WHERE is_approved = FALSE AND role != 'seller'
+            ORDER BY created_at DESC
+        """)
+        pending_users = cursor.fetchall()
+        cursor.close()
+        conn.close()
         
-        text = f"""
-📋 **Заявка #{req['id']}**
-
-🏢 **Поставщик:** {req['supplier']}
-🏗️ **Объект:** {req['object_name']}
-📦 **Товар:** {req['product_name']}
-📊 **Количество:** {req['quantity']} {req['unit']}
-📝 **Описание:** {req['material_description']}
-📅 **Дата:** {req['created_at'].strftime('%d.%m.%Y %H:%M')}
-
-💰 **Предложений:** {len(offers)}
-"""
-        
-        if offers:
-            text += "\n**Последние предложения:**\n"
-            for offer in offers[:3]:
-                text += f"• {offer['full_name']}: {offer['price']} сум\n"
-        
-        await message.answer(text)
-
-@dp.message(lambda message: message.text == "💰 Мои предложения")
-async def show_my_offers(message: types.Message):
-    """Показать предложения продавца"""
-    user = await db.get_user(message.from_user.id)
-    if user['role'] != 'seller':
-        await message.answer("❌ Только продавцы могут просматривать предложения.")
-        return
-    
-    # Получаем предложения продавца
-    offers = await db.get_seller_offers(user['id'])
-    
-    if not offers:
-        await message.answer("📭 У вас пока нет предложений.")
-        return
-    
-    for offer in offers[:5]:
-        text = f"""
-💰 **Предложение #{offer['id']}**
-
-💵 **Цена:** {offer['price']} сум
-💸 **Сумма:** {offer['total_amount']} сум
-📅 **Дата:** {offer['created_at'].strftime('%d.%m.%Y %H:%M')}
-📊 **Статус:** {OFFER_STATUSES.get(offer['status'], offer['status'])}
-"""
-        await message.answer(text)
-
-@dp.message(lambda message: message.text == "📦 Доставки")
-async def show_deliveries(message: types.Message):
-    """Показать доставки"""
-    user = await db.get_user(message.from_user.id)
-    if user['role'] not in ['buyer', 'warehouse']:
-        await message.answer("❌ Только покупатели и люди на складе могут просматривать доставки.")
-        return
-    
-    if user['role'] == 'warehouse':
-        # Показываем ожидающие доставки
-        deliveries = await db.get_pending_deliveries()
-        
-        if not deliveries:
-            await message.answer("📭 Нет ожидающих доставок.")
+        if not pending_users:
+            await callback_query.message.answer("Нет пользователей ожидающих одобрения.")
             return
         
-        for delivery in deliveries:
-            text = f"""
-📦 **Доставка #{delivery['id']}**
+        text = "👥 Пользователи ожидающие одобрения:\n\n"
+        for user in pending_users:
+            text += f"ID: {user['telegram_id']}\n"
+            text += f"Имя: {user['first_name']}\n"
+            text += f"Телефон: {user['phone']}\n"
+            text += f"Роль: {user['role']}\n"
+            text += f"Дата: {user['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
+            text += "─" * 30 + "\n"
+        
+        await callback_query.message.answer(text)
+    
+    elif action == "admin_add_buyer":
+        await callback_query.message.answer(
+            "Для добавления покупателя, попросите его отправить команду /register и выбрать роль 'Покупатель'"
+        )
+    
+    elif action == "admin_add_warehouse":
+        await callback_query.message.answer(
+            "Для добавления человека на складе, попросите его отправить команду /register и выбрать роль 'Человек на складе'"
+        )
+    
+    await callback_query.answer()
 
-👤 **Продавец:** {delivery['seller_name']}
-📞 **Телефон:** {delivery['seller_phone']}
-💵 **Сумма:** {delivery['total_amount']} сум
-📅 **Дата:** {delivery['created_at'].strftime('%d.%m.%Y %H:%M')}
-"""
-            await message.answer(
-                text,
-                reply_markup=get_delivery_keyboard(delivery['id'])
-            )
-
-@dp.callback_query(lambda c: c.data.startswith('received_'))
-async def process_delivery_received(callback: types.CallbackQuery):
-    """Обработка подтверждения получения товара"""
-    delivery_id = int(callback.data.split('_')[1])
+# Команда для одобрения пользователей
+@router.message(Command("approve"))
+async def cmd_approve(message: types.Message):
+    """Одобрение пользователя администратором"""
+    if not is_admin(message.from_user.id):
+        await message.answer("У вас нет прав администратора!")
+        return
     
     try:
-        await db.mark_delivery_received(delivery_id)
-        await callback.message.edit_text(
-            callback.message.text + "\n\n✅ **ТОВАР ПОЛУЧЕН НА СКЛАДЕ**"
-        )
+        telegram_id = int(message.text.split()[1])
+        db.approve_user(telegram_id)
         
-        # Уведомляем покупателя
-        delivery = await db.get_delivery_info(delivery_id)
-        if delivery:
+        # Уведомление пользователя
+        try:
             await bot.send_message(
-                delivery['buyer_telegram_id'],
-                "📦 Товар получен на складе и готов к использованию!"
+                telegram_id,
+                "✅ Ваша заявка на регистрацию одобрена! Теперь вы можете использовать бота."
             )
-            
-    except Exception as e:
-        await callback.answer("❌ Ошибка при обновлении статуса")
-        logging.error(f"Delivery received error: {e}")
+        except Exception as e:
+            logger.error(f"Не удалось уведомить пользователя {telegram_id}: {e}")
+        
+        await message.answer(f"Пользователь {telegram_id} успешно одобрен!")
+        
+    except (IndexError, ValueError):
+        await message.answer("Использование: /approve <telegram_id>")
 
-@dp.callback_query(lambda c: c.data.startswith('approve_'))
-async def process_user_approval(callback: types.CallbackQuery):
-    """Обработка одобрения пользователя"""
-    user_id = int(callback.data.split('_')[1])
+# Команда для отклонения пользователей
+@router.message(Command("reject"))
+async def cmd_reject(message: types.Message):
+    """Отклонение пользователя администратором"""
+    if not is_admin(message.from_user.id):
+        await message.answer("У вас нет прав администратора!")
+        return
     
     try:
-        await db.approve_user(user_id)
-        await callback.message.edit_text(
-            callback.message.text + "\n\n✅ **ОДОБРЕНО**"
-        )
+        telegram_id = int(message.text.split()[1])
         
-        # Уведомляем пользователя
-        await bot.send_message(
-            user_id,
-            "✅ Ваша регистрация одобрена! Теперь вы можете использовать систему.",
-            reply_markup=get_main_keyboard()
-        )
+        # Удаление пользователя из базы
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE telegram_id = %s", (telegram_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
         
-    except Exception as e:
-        await callback.answer("❌ Ошибка при одобрении")
-        logging.error(f"User approval error: {e}")
+        # Уведомление пользователя
+        try:
+            await bot.send_message(
+                telegram_id,
+                "❌ Ваша заявка на регистрацию отклонена администратором."
+            )
+        except Exception as e:
+            logger.error(f"Не удалось уведомить пользователя {telegram_id}: {e}")
+        
+        await message.answer(f"Пользователь {telegram_id} отклонен и удален из системы!")
+        
+    except (IndexError, ValueError):
+        await message.answer("Использование: /reject <telegram_id>")
 
-@dp.callback_query(lambda c: c.data.startswith('reject_'))
-async def process_user_rejection(callback: types.CallbackQuery):
-    """Обработка отклонения пользователя"""
-    user_id = int(callback.data.split('_')[1])
+# Обработчик текстовых сообщений
+@router.message()
+async def handle_text(message: types.Message):
+    """Обработка текстовых сообщений"""
+    user = db.get_user(message.from_user.id)
     
-    try:
-        await callback.message.edit_text(
-            callback.message.text + "\n\n❌ **ОТКЛОНЕНО**"
-        )
-        
-        # Уведомляем пользователя
-        await bot.send_message(
-            user_id,
-            "❌ Ваша регистрация отклонена. Обратитесь к администратору."
-        )
-        
-    except Exception as e:
-        await callback.answer("❌ Ошибка при отклонении")
-        logging.error(f"User rejection error: {e}")
-
-async def show_main_menu(message: types.Message):
-    """Показать главное меню"""
-    user = await db.get_user(message.from_user.id)
+    if not user or not user['is_approved']:
+        await message.answer("Пожалуйста, сначала зарегистрируйтесь с помощью /register")
+        return
     
-    if user['role'] == 'admin':
-        await message.answer(
-            "👨‍💼 Панель администратора",
-            reply_markup=get_admin_keyboard()
-        )
+    text = message.text
+    
+    if text == "ℹ️ Помощь":
+        await show_help(message, user['role'])
+    elif text == "📋 Создать заявку" and user['role'] == 'buyer':
+        await start_purchase_request(message)
+    elif text == "📊 Мои заявки" and user['role'] == 'buyer':
+        await show_my_requests(message)
+    elif text == "📋 Активные заявки" and user['role'] == 'seller':
+        await show_active_requests(message)
+    elif text == "📦 Ожидающие доставки" and user['role'] == 'warehouse':
+        await show_pending_deliveries(message)
     else:
-        await message.answer(
-            f"👋 Добро пожаловать, {user['full_name']}!\n"
-            f"Роль: {ROLES.get(user['role'], user['role'])}",
-            reply_markup=get_main_keyboard()
-        )
+        await message.answer("Используйте кнопки меню для навигации.")
 
+async def show_help(message: types.Message, role: str):
+    """Показать справку"""
+    help_text = "📚 Справка по использованию бота:\n\n"
+    
+    if role == 'buyer':
+        help_text += "👤 Покупатель:\n"
+        help_text += "• Создавайте заявки на покупку товаров\n"
+        help_text += "• Получайте предложения от продавцов\n"
+        help_text += "• Отслеживайте статус заказов\n\n"
+    elif role == 'seller':
+        help_text += "🏪 Продавец:\n"
+        help_text += "• Просматривайте активные заявки\n"
+        help_text += "• Отправляйте предложения покупателям\n"
+        help_text += "• Отслеживайте свои предложения\n\n"
+    elif role == 'warehouse':
+        help_text += "🏭 Человек на складе:\n"
+        help_text += "• Принимайте товары от продавцов\n"
+        help_text += "• Подтверждайте получение товаров\n"
+        help_text += "• Уведомляйте покупателей\n\n"
+    
+    help_text += "⏰ Время: " + get_current_time()
+    await message.answer(help_text)
+
+async def start_purchase_request(message: types.Message):
+    """Начать создание заявки на покупку"""
+    await message.answer("Введите название поставщика:")
+    # Здесь нужно добавить FSM для создания заявки
+
+async def show_my_requests(message: types.Message):
+    """Показать заявки покупателя"""
+    await message.answer("Функция в разработке...")
+
+async def show_active_requests(message: types.Message):
+    """Показать активные заявки для продавцов"""
+    await message.answer("Функция в разработке...")
+
+async def show_pending_deliveries(message: types.Message):
+    """Показать ожидающие доставки для склада"""
+    await message.answer("Функция в разработке...")
+
+# Запуск бота
 async def main():
     """Главная функция"""
-    logging.info("Бот запущен")
+    # Создание таблиц базы данных
+    db.create_tables()
+    
+    # Запуск бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
