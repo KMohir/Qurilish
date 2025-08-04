@@ -13,10 +13,10 @@ from config import ROLES, OFFER_STATUSES
 db = Database()
 
 async def handle_seller_offer(message: types.Message, state: FSMContext):
-    """Обработка предложения от продавца"""
+    """Обработка предложения от поставщика"""
     user = await db.get_user(message.from_user.id)
     if user['role'] != 'seller':
-        await message.answer("❌ Только продавцы могут отправлять предложения.")
+        await message.answer("❌ Только поставщики могут отправлять предложения.")
         return
     
     await message.answer(
@@ -157,8 +157,8 @@ async def show_statistics(message: types.Message):
 
 👥 **Пользователи:**
 • Всего: [количество]
-• Покупатели: [количество]
-• Продавцы: [количество]
+        • Заказчики: [количество]
+        • Поставщики: [количество]
 • Люди на складе: [количество]
 
 📋 **Заявки:**
@@ -188,12 +188,12 @@ async def handle_offer_approval(callback: types.CallbackQuery):
             callback.message.text + "\n\n✅ **ОДОБРЕНО**"
         )
         
-        # Уведомляем продавца
+        # Уведомляем поставщика
         offer = await db.get_offer_info(offer_id)
         if offer:
             await callback.bot.send_message(
                 offer['seller_telegram_id'],
-                "✅ Ваше предложение одобрено покупателем!"
+                "✅ Ваше предложение одобрено заказчиком!"
             )
             
     except Exception as e:
@@ -210,12 +210,12 @@ async def handle_offer_rejection(callback: types.CallbackQuery):
             callback.message.text + "\n\n❌ **ОТКЛОНЕНО**"
         )
         
-        # Уведомляем продавца
+        # Уведомляем поставщика
         offer = await db.get_offer_info(offer_id)
         if offer:
             await callback.bot.send_message(
                 offer['seller_telegram_id'],
-                "❌ Ваше предложение отклонено покупателем."
+                "❌ Ваше предложение отклонено заказчиком."
             )
             
     except Exception as e:

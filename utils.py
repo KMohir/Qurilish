@@ -16,7 +16,7 @@ def format_uzbek_time():
 def create_excel_template():
     """Создание шаблона Excel для заявок на покупку"""
     df = pd.DataFrame(columns=[
-        'Покупатель',
+        'Заказчик',
         'Поставщик', 
         'Объект номи',
         'Махсулот номи',
@@ -34,7 +34,7 @@ def create_excel_template():
     return output
 
 def create_offer_excel_template():
-    """Создание шаблона Excel для предложений продавцов"""
+    """Создание шаблона Excel для предложений поставщиков"""
     df = pd.DataFrame(columns=[
         'Нархи',
         'Суммаси'
@@ -54,9 +54,9 @@ def parse_excel_request(file_content):
         requests = []
         
         for _, row in df.iterrows():
-            if pd.notna(row['Покупатель']):  # Проверяем, что строка не пустая
+            if pd.notna(row['Заказчик']):  # Проверяем, что строка не пустая
                 request = {
-                    'buyer': row.get('Покупатель', ''),
+                    'buyer': row.get('Заказчик', ''),
                     'supplier': row.get('Поставщик', ''),
                     'object_name': row.get('Объект номи', ''),
                     'product_name': row.get('Махсулот номи', ''),
@@ -71,7 +71,7 @@ def parse_excel_request(file_content):
         raise ValueError(f"Ошибка при чтении Excel файла: {str(e)}")
 
 def parse_excel_offer(file_content):
-    """Парсинг Excel файла с предложением продавца"""
+    """Парсинг Excel файла с предложением поставщика"""
     try:
         df = pd.read_excel(io.BytesIO(file_content))
         offers = []
@@ -109,7 +109,7 @@ def format_request_text(request_data):
     text = f"""
 📋 **Заявка на покупку**
 
-👤 **Покупатель:** {request_data.get('buyer', 'Не указан')}
+👤 **Заказчик:** {request_data.get('buyer', 'Не указан')}
 🏢 **Поставщик:** {request_data.get('supplier', 'Не указан')}
 🏗️ **Объект:** {request_data.get('object_name', 'Не указан')}
 📦 **Товар:** {request_data.get('product_name', 'Не указан')}
@@ -123,9 +123,9 @@ def format_request_text(request_data):
 def format_offer_text(offer_data, seller_name, seller_phone):
     """Форматирование текста предложения"""
     text = f"""
-💰 **Предложение продавца**
+💰 **Предложение поставщика**
 
-👤 **Продавец:** {seller_name}
+👤 **Поставщик:** {seller_name}
 📞 **Телефон:** {seller_phone}
 💵 **Цена:** {offer_data.get('price', 0)} сум
 💸 **Сумма:** {offer_data.get('total_amount', 0)} сум

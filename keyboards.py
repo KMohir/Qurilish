@@ -18,9 +18,9 @@ def get_role_keyboard():
     """Клавиатура выбора роли"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="👤 Покупатель")],
-            [KeyboardButton(text="🏪 Продавец")],
-            [KeyboardButton(text="🏭 Человек на складе")]
+            [KeyboardButton(text="👤 Заказчик")],
+            [KeyboardButton(text="🏪 Поставщик")],
+            [KeyboardButton(text="🏭 Зав. Склад")]
         ],
         resize_keyboard=True
     )
