@@ -804,6 +804,13 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
         # Создаем запись доставки
         delivery_id = db.add_delivery(offer_id, None)  # warehouse_user_id будет установлен позже
         
+        # Получаем информацию о зав. складе
+        warehouse_users = db.get_users_by_role('warehouse')
+        warehouse_info = ""
+        if warehouse_users:
+            warehouse_user = warehouse_users[0]  # Берем первого зав. склада
+            warehouse_info = f"\n🏭 Зав. Склад: {warehouse_user['full_name']}\n📞 Телефон: {warehouse_user['phone_number']}"
+        
         # Уведомляем поставщика с кнопкой подтверждения отправки
         try:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -815,7 +822,7 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                 f"✅ Сизнинг таклифингиз #{offer_id} заказчик томонидан тасдиқланди!\n\n"
                 f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
                 f"📅 Тасдиқлаш санаси: {get_current_time()}\n"
-                f"📦 Доставка #{delivery_id} яратилди\n\n"
+                f"📦 Доставка #{delivery_id} яратилди{warehouse_info}\n\n"
                 f"🚚 Илтимос, товарларни складга юборинг ва тўғридаги тугмани босинг:",
                 reply_markup=keyboard
             )
@@ -826,7 +833,7 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             f"✅ Таклиф #{offer_id} тасдиқланди!\n"
             f"👤 Поставщик: {offer['full_name']}\n"
             f"💵 Сумма: {offer['total_amount']:,} сўм\n"
-            f"📦 Доставка #{delivery_id} яратилди"
+            f"📦 Доставка #{delivery_id} яратилди{warehouse_info}"
         )
         
     except Exception as e:
