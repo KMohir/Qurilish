@@ -809,7 +809,7 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
         warehouse_info = ""
         if warehouse_users:
             warehouse_user = warehouse_users[0]  # Берем первого зав. склада
-            warehouse_info = f"\n🏭 Масул шахс: {warehouse_user['full_name']}\n📞 Телефон: {warehouse_user['phone_number']}"
+            warehouse_info = f"\n🏭 Зав. Склад Масул шахс: {warehouse_user['full_name']}\n📞 Телефон: {warehouse_user['phone_number']}"
         
         # Уведомляем поставщика с кнопкой подтверждения отправки
         try:
