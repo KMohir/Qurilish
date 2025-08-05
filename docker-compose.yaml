@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine # Используем официальный образ PostgreSQL версии 16 (alpine для меньшего размера)
+    restart: always # Всегда перезапускать контейнер, если он останавливается
+    environment: # Переменные окружения для настройки PostgreSQL
+      POSTGRES_DB: ${DB_NAME} # Имя базы данных, берется из .env файла
+      POSTGRES_USER: ${DB_USER} # Имя пользователя базы данных, берется из .env файла
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # Пароль пользователя базы данных, берется из .env файла
+    volumes: # Сохраняем данные базы данных в постоянном томе
+      - db_data:/var/lib/postgresql/data
+    healthcheck: # Проверка работоспособности базы данных
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s # Проверять каждые 5 секунд
+      timeout: 5s # Таймаут для проверки 5 секунд
+      retries: 5 # Количество попыток перед объявлением нездоровым
+
+  bot:
+    build: . # Собираем образ для бота из Dockerfile в текущей директории
+    image: sfx-savdo-bot:latest
+    restart: always # Всегда перезапускать контейнер, если он останавливается
+    environment: # Переменные окружения для приложения бота
+      BOT_TOKEN: ${BOT_TOKEN} # Токен Telegram бота
+      ADMIN_IDS: ${ADMIN_IDS} # ID администраторов
+      DB_HOST: db # Имя хоста базы данных (имя сервиса Docker Compose)
+      DB_PORT: 5432 # Порт базы данных
+      DB_NAME: ${DB_NAME} # Имя базы данных
+      DB_USER: ${DB_USER} # Имя пользователя базы данных
+      DB_PASSWORD: ${DB_PASSWORD} # Пароль базы данных
+      TIMEZONE: ${TIMEZONE} # Часовой пояс
+      LOG_LEVEL: ${LOG_LEVEL} # Уровень логирования
+      # LOG_FILE не требуется, так как Docker обрабатывает логи в stdout/stderr
+    depends_on: # Указываем зависимость от сервиса базы данных
+      db:
+        condition: service_healthy # Запускать бота только после того, как база данных станет здоровой
+    # Если боту требуется вебхук или он должен прослушивать порт, раскомментируйте и настройте:
+    # ports:
+    #   - "8080:8080" # Пример маппинга портов: хост:контейнер
+
+volumes: # Определение томов для постоянного хранения данных
+  db_data: # Том для данных PostgreSQL
