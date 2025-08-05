@@ -73,6 +73,16 @@ class Database:
             )
         """)
         
+        # Добавляем колонку excel_filename, если она не существует
+        try:
+            cursor.execute("ALTER TABLE seller_offers ADD COLUMN excel_filename VARCHAR(255)")
+            print("✅ Колонка excel_filename добавлена в таблицу seller_offers")
+        except Exception as e:
+            if "already exists" in str(e) or "duplicate column name" in str(e):
+                print("ℹ️ Колонка excel_filename уже существует")
+            else:
+                print(f"⚠️ Ошибка при добавлении колонки excel_filename: {e}")
+        
         # Таблица деталей предложений (товары с ценами)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS offer_items (
@@ -210,15 +220,15 @@ class Database:
         conn.close()
         return item_id
     
-    def add_seller_offer(self, request_id, seller_id, total_amount, offer_type='excel'):
+    def add_seller_offer(self, request_id, seller_id, total_amount, offer_type='excel', excel_filename=None):
         """Добавление предложения поставщика"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO seller_offers (purchase_request_id, seller_id, total_amount, offer_type)
-            VALUES (%s, %s, %s, %s) RETURNING id
-        """, (request_id, seller_id, total_amount, offer_type))
+            INSERT INTO seller_offers (purchase_request_id, seller_id, total_amount, offer_type, excel_filename)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (request_id, seller_id, total_amount, offer_type, excel_filename))
         
         offer_id = cursor.fetchone()[0]
         conn.commit()
@@ -280,7 +290,7 @@ class Database:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
         cursor.execute("""
-            SELECT so.*, u.full_name, u.phone_number
+            SELECT so.*, u.full_name, u.phone_number, so.excel_filename
             FROM seller_offers so
             JOIN users u ON so.seller_id = u.id
             WHERE so.purchase_request_id = %s

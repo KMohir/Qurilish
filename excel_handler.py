@@ -182,11 +182,12 @@ class ExcelHandler:
         summary += "=" * 50 + "\n\n"
         
         for i, offer in enumerate(offers, 1):
+            excel_info = f"\n📄 Excel файл: {offer['excel_filename']}" if offer.get('excel_filename') else ""
             summary += f"💼 **Предложение #{offer['id']}**\n"
             summary += f"👤 Поставщик: {offer['full_name']}\n"
             summary += f"📞 Телефон: {offer['phone_number']}\n"
             summary += f"💵 Общая сумма: {offer['total_amount']:,} сум\n"
-            summary += f"📅 Дата: {offer['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
+            summary += f"📅 Дата: {offer['created_at'].strftime('%d.%m.%Y %H:%M')}{excel_info}\n"
             summary += "─" * 30 + "\n"
             
             # Детали товаров

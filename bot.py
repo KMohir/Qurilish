@@ -586,7 +586,8 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
         offer_id = db.add_seller_offer(
             request_id=request_id,
             seller_id=user['id'],
-            total_amount=offer_data['total_amount']
+            total_amount=offer_data['total_amount'],
+            excel_filename=message.document.file_name
         )
         
         # Сохраняем товары предложения
@@ -632,13 +633,14 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
                 # Создаем кнопки для каждого предложения
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[])
                 for offer in offers:
+                    excel_info = f" (📄 {offer['excel_filename']})" if offer.get('excel_filename') else ""
                     keyboard.inline_keyboard.append([
                         InlineKeyboardButton(
-                            text=f"✅ Одобрить #{offer['id']}", 
+                            text=f"✅ Одобрить #{offer['id']}{excel_info}", 
                             callback_data=f"approve_offer_{offer['id']}"
                         ),
                         InlineKeyboardButton(
-                            text=f"❌ Отклонить #{offer['id']}", 
+                            text=f"❌ Отклонить #{offer['id']}{excel_info}", 
                             callback_data=f"reject_offer_{offer['id']}"
                         )
                     ])
