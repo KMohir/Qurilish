@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE
@@ -286,7 +286,8 @@ async def process_role(message: types.Message, state: FSMContext):
         # Заказчики и зав. склада требуют одобрения админа
         await message.answer(
             "Рўйхатдан ўтиш якунланди! Аризангиз маъмурга юборилди тасдиқлаш учун. "
-            "Маъмур аризангизни тасдиқлаганда хабар оласиз."
+            "Маъмур аризангизни тасдиқлаганда хабар оласиз.",
+            reply_markup=ReplyKeyboardRemove()
         )
         
         # Уведомление администраторов
