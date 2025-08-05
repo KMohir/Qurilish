@@ -819,11 +819,11 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             
             await bot.send_message(
                 offer['seller_telegram_id'],
-                f"✅ Сизнинг таклифингиз #{offer_id} заказчик томонидан тасдиқланди!\n\n"
+                f"✅ Сизнинг таклифингиз #{offer_id} буюртмачи томонидан тасдиқланди!\n\n"
                 f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
                 f"📅 Тасдиқлаш санаси: {get_current_time()}\n"
-                f"📦 Доставка #{delivery_id} яратилди{warehouse_info}\n\n"
-                f"🚚 Илтимос, товарларни складга юборинг ва тўғридаги тугмани босинг:",
+                f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}\n\n"
+                f"🚚 Илтимос, товарларни омборга етказиб беринг ва тўғридаги тугмани босинг:",
                 reply_markup=keyboard
             )
         except Exception as e:
@@ -833,7 +833,7 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             f"✅ Таклиф #{offer_id} тасдиқланди!\n"
             f"👤 Поставщик: {offer['full_name']}\n"
             f"💵 Сумма: {offer['total_amount']:,} сўм\n"
-            f"📦 Доставка #{delivery_id} яратилди{warehouse_info}"
+            f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}"
         )
         
     except Exception as e:
@@ -908,7 +908,7 @@ async def process_delivery_confirmation(callback_query: types.CallbackQuery):
         conn.close()
         
         if not delivery:
-            await callback_query.answer("❌ Доставка не найдена!")
+            await callback_query.answer("❌ Етказиб бериш топилмади!")
             return
         
         # Обновляем статус доставки
@@ -919,23 +919,23 @@ async def process_delivery_confirmation(callback_query: types.CallbackQuery):
             await bot.send_message(
                 delivery['buyer_telegram_id'],
                 f"🎉 **Товарлар келди!**\n\n"
-                f"📦 Доставка #{delivery_id}\n"
+                f"📦 Етказиб бериш #{delivery_id}\n"
                 f"🏢 Поставщик: {delivery['supplier']}\n"
                 f"🏗️ Объект: {delivery['object_name']}\n"
                 f"👤 Поставщик: {delivery['seller_name']}\n"
                 f"💵 Сумма: {delivery['total_amount']:,} сум\n"
                 f"📅 Время получения: {get_current_time()}\n\n"
-                f"✅ Товарлар складда тайёр. Олишингиз мумкин!"
+                f"✅ Товарлар омборда тайёр. Олишингиз мумкин!"
             )
         except Exception as e:
             logger.error(f"Failed to notify buyer {delivery['buyer_telegram_id']}: {e}")
         
         await callback_query.message.edit_text(
-            f"✅ Доставка #{delivery_id} подтверждена!\n"
+            f"✅ Етказиб бериш #{delivery_id} тасдиқланди!\n"
             f"📅 Время: {get_current_time()}\n\n"
-            f"✅ Заказчик уведомлен о прибытии товаров!"
+            f"✅ Буюртмачига хабар юборилди!"
         )
-        await callback_query.answer("✅ Доставка подтверждена!")
+        await callback_query.answer("✅ Етказиб бериш тасдиқланди!")
         
     except Exception as e:
         await callback_query.answer(f"❌ Ошибка: {str(e)}")
@@ -970,7 +970,7 @@ async def process_goods_received(callback_query: types.CallbackQuery):
         conn.close()
         
         if not delivery:
-            await callback_query.answer("❌ Доставка не найдена!")
+            await callback_query.answer("❌ Етказиб бериш топилмади!")
             return
         
         # Обновляем статус доставки
@@ -981,13 +981,13 @@ async def process_goods_received(callback_query: types.CallbackQuery):
             await bot.send_message(
                 delivery['buyer_telegram_id'],
                 f"🎉 **Товарлар келди!**\n\n"
-                f"📦 Доставка #{delivery_id}\n"
+                f"📦 Етказиб бериш #{delivery_id}\n"
                 f"🏢 Поставщик: {delivery['supplier']}\n"
                 f"🏗️ Объект: {delivery['object_name']}\n"
                 f"👤 Поставщик: {delivery['seller_name']}\n"
                 f"💵 Сумма: {delivery['total_amount']:,} сум\n"
                 f"📅 Время получения: {get_current_time()}\n\n"
-                f"✅ Товарлар складда тайёр. Олишингиз мумкин!"
+                f"✅ Товарлар омборда тайёр. Олишингиз мумкин!"
             )
         except Exception as e:
             logger.error(f"Failed to notify buyer {delivery['buyer_telegram_id']}: {e}")
@@ -995,9 +995,9 @@ async def process_goods_received(callback_query: types.CallbackQuery):
         # Обновляем сообщение склада
         await callback_query.message.edit_text(
             f"✅ **Товарлар қабул қилинди!**\n\n"
-            f"📦 Доставка #{delivery_id}\n"
+            f"📦 Етказиб бериш #{delivery_id}\n"
             f"📅 Время получения: {get_current_time()}\n\n"
-            f"✅ Заказчик уведомлен о прибытии товаров!"
+            f"✅ Буюртмачига хабар юборилди!"
         )
         await callback_query.answer("✅ Товары получены!")
         
@@ -1053,7 +1053,7 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
         conn.close()
         
         if not delivery:
-            await callback_query.answer("❌ Доставка не найдена!")
+            await callback_query.answer("❌ Етказиб бериш топилмади!")
             return
         
         # Уведомляем всех складских работников
@@ -1066,12 +1066,12 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
                 
                 await bot.send_message(
                     warehouse_user['telegram_id'],
-                    f"📦 **Товарлар складга келди!**\n\n"
-                    f"📦 Доставка #{delivery_id}\n"
+                    f"📦 **Товарлар омборга келди!**\n\n"
+                    f"📦 Етказиб бериш #{delivery_id}\n"
                     f"🏢 Поставщик: {delivery['supplier']}\n"
                     f"🏗️ Объект: {delivery['object_name']}\n"
                     f"👤 Поставщик: {delivery['seller_name']}\n"
-                    f"👤 Заказчик: {delivery['buyer_name']}\n"
+                    f"👤 Буюртмачи: {delivery['buyer_name']}\n"
                     f"💵 Сумма: {delivery['total_amount']:,} сум\n"
                     f"📅 Время: {get_current_time()}\n\n"
                     f"✅ Илтимос, товарларни текширинг ва тўғридаги тугмани босинг:",
@@ -1083,7 +1083,7 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
         # Обновляем сообщение поставщика
         await callback_query.message.edit_text(
             f"🚚 **Товарлар юборилди!**\n\n"
-            f"📦 Доставка #{delivery_id}\n"
+            f"📦 Етказиб бериш #{delivery_id}\n"
             f"📅 Время отправки: {get_current_time()}\n\n"
             f"✅ Склад ходимларига хабар юборилди. Улар товарларни текшириб, тасдиқлашади."
         )
