@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE
 from database import Database
 from excel_handler import ExcelHandler
+from keyboards import get_role_keyboard, get_contact_keyboard, get_object_keyboard, get_cancel_keyboard
 import pandas as pd
 import io
 import psycopg2.extras
@@ -37,6 +38,8 @@ class RegistrationStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_phone = State()
     waiting_for_role = State()
+    waiting_for_object = State()
+    waiting_for_location = State()
 
 class PurchaseRequestStates(StatesGroup):
     waiting_for_supplier = State()
@@ -117,27 +120,7 @@ def get_main_keyboard(user_role: str):
     
     return keyboard
 
-def get_role_keyboard():
-    """Клавиатура выбора роли"""
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="👤 Заказчик")],
-            [KeyboardButton(text="🏪 Поставщик")],
-            [KeyboardButton(text="🏭 Зав. Склад")]
-        ],
-        resize_keyboard=True
-    )
-    return keyboard
 
-def get_contact_keyboard():
-    """Клавиатура для отправки контакта"""
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📞 Менинг рақамини юбориш", request_contact=True)]
-        ],
-        resize_keyboard=True
-    )
-    return keyboard
 
 # Обработчики команд
 @router.message(Command("start"))
@@ -262,17 +245,18 @@ async def process_role(message: types.Message, state: FSMContext):
     role = role_mapping[message.text]
     user_data = await state.get_data()
     
-    # Регистрация пользователя
-    user_id = db.add_user(
-        telegram_id=message.from_user.id,
-        username=message.from_user.username,
-        full_name=user_data['name'],
-        phone=user_data['phone'],
-        role=role
-    )
+    # Сохраняем роль в состоянии
+    await state.update_data(role=role)
     
     if role == 'seller':
-        # Поставщики автоматически одобряются
+        # Поставщики автоматически одобряются - регистрируем сразу
+        user_id = db.add_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=user_data['name'],
+            phone=user_data['phone'],
+            role=role
+        )
         db.approve_user(message.from_user.id)
         await message.answer(
             f"Рўйхатдан ўтиш муваффақиятли якунланди!\n\n"
@@ -282,12 +266,59 @@ async def process_role(message: types.Message, state: FSMContext):
             reply_markup=get_main_keyboard(role)
         )
         print(f"DEBUG: Показано главное меню для поставщика {message.from_user.id}")
+        await state.clear()
     else:
-        # Заказчики и зав. склада требуют одобрения админа
+        # Заказчики и зав. склада - запрашиваем объект
         await message.answer(
-            "Рўйхатдан ўтиш якунланди! Аризангиз маъмурга юборилди тасдиқлаш учун. "
-            "Маъмур аризангизни тасдиқлаганда хабар оласиз.",
-            reply_markup=ReplyKeyboardRemove()
+            "Энди ролингизни танланг:\n"
+            "Объект номини танланг:",
+            reply_markup=get_object_keyboard()
+        )
+        await state.set_state(RegistrationStates.waiting_for_object)
+
+@router.message(RegistrationStates.waiting_for_object)
+async def process_object(message: types.Message, state: FSMContext):
+    """Обработка выбора объекта"""
+    # Список допустимых объектов
+    valid_objects = [
+        "Сам Сити", "Ситй+Сиёб Б Й К блок", "Ал Бухорий", "Ал-Бухорий Хотел",
+        "Рубловка", "Қува ҚВП", "Макон Малл", "Карши Малл", "Карши Хотел",
+        "Воха Гавхари", "Зарметан усто Ғафур", "Кожа завод", "Мотрид катеж",
+        "Хишрав", "Махдуми Азам", "Сирдарё 1/10 Зухри", "Эшонгузар",
+        "Рубловка(Хожи бобо дом)", "Ургут", "Қўқон малл"
+    ]
+    
+    if message.text == "❌ Отмена":
+        await message.answer("Рўйхатдан ўтиш бекор қилинди.", reply_markup=ReplyKeyboardRemove())
+        await state.clear()
+        return
+    
+    if message.text not in valid_objects:
+        await message.answer("Илтимос, таклиф этилган объектлардан бирини танланг:")
+        return
+    
+    # Сохраняем объект в состоянии
+    await state.update_data(object_name=message.text)
+    user_data = await state.get_data()
+    
+    if user_data['role'] == 'warehouse':
+        # Для зав. склада запрашиваем локацию
+        await message.answer(
+            "Локацияни киритинг ёки геолокацияни юборинг:\n"
+            "• Текст бўлиб манзилни ёзинг\n"
+            "• Ёки 📍 геолокацияни юборинг",
+            reply_markup=get_cancel_keyboard()
+        )
+        await state.set_state(RegistrationStates.waiting_for_location)
+    else:
+        # Для заказчика регистрируем сразу
+        user_id = db.add_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            full_name=user_data['name'],
+            phone=user_data['phone'],
+            role=user_data['role'],
+            object_name=message.text
         )
         
         # Уведомление администраторов
@@ -298,15 +329,78 @@ async def process_role(message: types.Message, state: FSMContext):
                     f"🔔 Рўйхатдан ўтиш учун янги ариза!\n"
                     f"Исм: {user_data['name']}\n"
                     f"Телефон: {user_data['phone']}\n"
-                    f"Роль: {role}\n"
+                    f"Роль: {user_data['role']}\n"
+                    f"Объект: {message.text}\n"
                     f"Telegram ID: {message.from_user.id}"
                 )
             except Exception as e:
                 logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
+        
+        await message.answer(
+            "Рўйхатдан ўтиш якунланди! Аризангиз маъмурга юборилди тасдиқлаш учун. "
+            "Маъмур аризангизни тасдиқлаганда хабар оласиз.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await state.clear()
+
+@router.message(RegistrationStates.waiting_for_location)
+async def process_location(message: types.Message, state: FSMContext):
+    """Обработка ввода локации"""
+    if message.text == "❌ Отмена":
+        await message.answer("Рўйхатдан ўтиш бекор қилинди.", reply_markup=ReplyKeyboardRemove())
+        await state.clear()
+        return
     
-    # Принудительно очищаем состояние
+    user_data = await state.get_data()
+    location_text = ""
+    
+    # Обработка разных типов локации
+    if message.location:
+        # Геолокация
+        location_text = f"Координаты: {message.location.latitude}, {message.location.longitude}"
+    elif message.venue:
+        # Место
+        location_text = f"Место: {message.venue.title}, {message.venue.address}"
+    elif message.text:
+        # Текстовый ввод
+        location_text = message.text
+    else:
+        await message.answer("Илтимос, локацияни киритинг ёки геолокацияни юборинг:")
+        return
+    
+    # Регистрируем зав. склада с объектом и локацией
+    user_id = db.add_user(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=user_data['name'],
+        phone=user_data['phone'],
+        role=user_data['role'],
+        object_name=user_data['object_name'],
+        location=location_text
+    )
+    
+    # Уведомление администраторов
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"🔔 Рўйхатдан ўтиш учун янги ариза!\n"
+                f"Исм: {user_data['name']}\n"
+                f"Телефон: {user_data['phone']}\n"
+                f"Роль: {user_data['role']}\n"
+                f"Объект: {user_data['object_name']}\n"
+                f"Локация: {location_text}\n"
+                f"Telegram ID: {message.from_user.id}"
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
+    
+    await message.answer(
+        "Рўйхатдан ўтиш якунланди! Аризангиз маъмурга юборилди тасдиқлаш учун. "
+        "Маъмур аризангизни тасдиқлаганда хабар оласиз.",
+        reply_markup=ReplyKeyboardRemove()
+    )
     await state.clear()
-    print(f"DEBUG: Состояние очищено для пользователя {message.from_user.id}")
 
 # Административные команды
 @router.message(Command("admin"))
@@ -788,9 +882,9 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
     """Одобрение предложения заказчиком"""
     try:
         offer_id = int(callback_query.data.split('_')[2])
-        user = db.get_user(callback_query.from_user.id)
+        buyer = db.get_user(callback_query.from_user.id)
         
-        if not user or user['role'] != 'buyer':
+        if not buyer or buyer['role'] != 'buyer':
             await callback_query.answer("❌ Только заказчики могут одобрять предложения!")
             return
         
@@ -800,18 +894,58 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             await callback_query.answer("❌ Предложение не найдено!")
             return
         
+        # Получаем информацию о заявке
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT pr.object_name, pr.buyer_id, u.object_name as buyer_object
+            FROM purchase_requests pr
+            JOIN users u ON pr.buyer_id = u.id
+            WHERE pr.id = %s
+        """, (offer['purchase_request_id'],))
+        request_info = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not request_info:
+            await callback_query.answer("❌ Информация о заявке не найдена!")
+            return
+        
         # Обновляем статус предложения
         db.update_offer_status(offer_id, 'approved')
         
         # Создаем запись доставки
         delivery_id = db.add_delivery(offer_id, None)  # warehouse_user_id будет установлен позже
         
-        # Получаем информацию о зав. складе
-        warehouse_users = db.get_users_by_role('warehouse')
+        # Получаем зав. складов с тем же объектом
+        warehouse_users = db.get_warehouse_users_by_object(request_info['buyer_object'])
         warehouse_info = ""
+        warehouse_notifications = []
+        
         if warehouse_users:
             warehouse_user = warehouse_users[0]  # Берем первого зав. склада
             warehouse_info = f"\n🏭 Зав. Склад Масул шахс: {warehouse_user['full_name']}\n📞 Телефон: {warehouse_user['phone_number']}"
+            
+            # Уведомляем зав. складов
+            for warehouse in warehouse_users:
+                try:
+                    location_info = f"\n📍 Локация: {warehouse['location']}" if warehouse['location'] else ""
+                    await bot.send_message(
+                        warehouse['telegram_id'],
+                        f"🔔 Янги буюртма тасдиқланди!\n\n"
+                        f"📋 Буюртма #{offer['purchase_request_id']}\n"
+                        f"👤 Буюртмачи: {buyer['full_name']}\n"
+                        f"🏢 Объект: {request_info['buyer_object']}\n"
+                        f"👨‍💼 Поставщик: {offer['full_name']}\n"
+                        f"💵 Сумма: {offer['total_amount']:,} сўм\n"
+                        f"📦 Етказиб бериш #{delivery_id}{location_info}\n\n"
+                        f"📞 Буюртмачи билан боғланиш: {buyer['phone_number']}"
+                    )
+                    warehouse_notifications.append(warehouse['full_name'])
+                except Exception as e:
+                    logger.error(f"Failed to notify warehouse {warehouse['telegram_id']}: {e}")
+        else:
+            warehouse_info = "\n⚠️ Зав. Склад топилмади"
         
         # Уведомляем поставщика с кнопкой подтверждения отправки
         try:
@@ -819,23 +953,34 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                 [InlineKeyboardButton(text="🚚 Товарларни юборилди", callback_data=f"ship_sent_{delivery_id}")]
             ])
             
+            # Получаем локацию зав. склада для поставщика
+            warehouse_location = ""
+            if warehouse_users:
+                warehouse_user = warehouse_users[0]
+                if warehouse_user['location']:
+                    warehouse_location = f"\n📍 Локация: {warehouse_user['location']}"
+            
             await bot.send_message(
                 offer['seller_telegram_id'],
                 f"✅ Сизнинг таклифингиз #{offer_id} буюртмачи томонидан тасдиқланди!\n\n"
                 f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
                 f"📅 Тасдиқлаш санаси: {get_current_time()}\n"
-                f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}\n\n"
+                f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}{warehouse_location}\n\n"
                 f"🚚 Илтимос, товарларни омборга етказиб беринг ва тўғридаги тугмани босинг:",
                 reply_markup=keyboard
             )
         except Exception as e:
             logger.error(f"Failed to notify seller {offer['seller_telegram_id']}: {e}")
         
+        # Формируем информацию о уведомленных зав. складах
+        warehouse_list = ", ".join(warehouse_notifications) if warehouse_notifications else "Топилмади"
+        
         await callback_query.message.edit_text(
             f"✅ Таклиф #{offer_id} тасдиқланди!\n"
             f"👤 Поставщик: {offer['full_name']}\n"
             f"💵 Сумма: {offer['total_amount']:,} сўм\n"
-            f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}"
+            f"📦 Етказиб бериш #{delivery_id} яратилди\n"
+            f"🏭 Уведомленные зав. склады: {warehouse_list}"
         )
         
     except Exception as e:

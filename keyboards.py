@@ -96,4 +96,45 @@ def get_cancel_keyboard():
         ],
         resize_keyboard=True
     )
+    return keyboard
+
+def get_contact_keyboard():
+    """Клавиатура для отправки контакта"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📞 Менинг рақамини юбориш", request_contact=True)],
+            [KeyboardButton(text="❌ Отмена")]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
+
+def get_object_keyboard():
+    """Клавиатура выбора объекта"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Сам Сити")],
+            [KeyboardButton(text="Ситй+Сиёб Б Й К блок")],
+            [KeyboardButton(text="Ал Бухорий")],
+            [KeyboardButton(text="Ал-Бухорий Хотел")],
+            [KeyboardButton(text="Рубловка")],
+            [KeyboardButton(text="Қува ҚВП")],
+            [KeyboardButton(text="Макон Малл")],
+            [KeyboardButton(text="Карши Малл")],
+            [KeyboardButton(text="Карши Хотел")],
+            [KeyboardButton(text="Воха Гавхари")],
+            [KeyboardButton(text="Зарметан усто Ғафур")],
+            [KeyboardButton(text="Кожа завод")],
+            [KeyboardButton(text="Мотрид катеж")],
+            [KeyboardButton(text="Хишрав")],
+            [KeyboardButton(text="Махдуми Азам")],
+            [KeyboardButton(text="Сирдарё 1/10 Зухри")],
+            [KeyboardButton(text="Эшонгузар")],
+            [KeyboardButton(text="Рубловка(Хожи бобо дом)")],
+            [KeyboardButton(text="Ургут")],
+            [KeyboardButton(text="Қўқон малл")],
+            [KeyboardButton(text="❌ Отмена")]
+        ],
+        resize_keyboard=True
+    )
     return keyboard 

@@ -29,6 +29,8 @@ class Database:
                 full_name VARCHAR(255) NOT NULL,
                 phone_number VARCHAR(20) NOT NULL,
                 role VARCHAR(20) NOT NULL CHECK (role IN ('buyer', 'seller', 'warehouse', 'admin')),
+                object_name VARCHAR(255),
+                location VARCHAR(500),
                 is_approved BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -80,8 +82,13 @@ class Database:
         except Exception as e:
             if "already exists" in str(e) or "duplicate column name" in str(e):
                 print("ℹ️ Колонка excel_filename уже существует")
+                # Откатываем транзакцию и начинаем новую
+                conn.rollback()
+                cursor = conn.cursor()
             else:
                 print(f"⚠️ Ошибка при добавлении колонки excel_filename: {e}")
+                conn.rollback()
+                cursor = conn.cursor()
         
         # Таблица деталей предложений (товары с ценами)
         cursor.execute("""
@@ -89,10 +96,10 @@ class Database:
                 id SERIAL PRIMARY KEY,
                 offer_id INTEGER REFERENCES seller_offers(id) ON DELETE CASCADE,
                 product_name VARCHAR(255),
-                quantity DECIMAL(10,2),
+                quantity DECIMAL(15,2),
                 unit VARCHAR(50),
-                price_per_unit DECIMAL(10,2),
-                total_price DECIMAL(10,2),
+                price_per_unit DECIMAL(15,2),
+                total_price DECIMAL(15,2),
                 material_description TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -115,8 +122,79 @@ class Database:
         cursor.close()
         conn.close()
         print("✅ Таблицы базы данных созданы успешно!")
+        
+        # Автоматическое исправление типов полей для больших чисел
+        self.fix_decimal_fields()
+        
+        # Автоматическое добавление новых колонок
+        self.add_missing_columns()
     
-    def add_user(self, telegram_id, username, full_name, phone, role):
+    def fix_decimal_fields(self):
+        """Исправление типов полей для поддержки больших чисел"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Список таблиц и полей для исправления
+            fixes = [
+                ("offer_items", "quantity", "DECIMAL(15,2)"),
+                ("offer_items", "price_per_unit", "DECIMAL(15,2)"),
+                ("offer_items", "total_price", "DECIMAL(15,2)"),
+                ("request_items", "quantity", "DECIMAL(15,2)"),
+                ("seller_offers", "total_amount", "DECIMAL(15,2)")
+            ]
+            
+            for table, column, new_type in fixes:
+                try:
+                    cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE {new_type}")
+                    print(f"✅ Исправлен тип поля {table}.{column} на {new_type}")
+                except Exception as e:
+                    if "already exists" in str(e) or "duplicate column name" in str(e):
+                        print(f"ℹ️ Поле {table}.{column} уже имеет правильный тип")
+                    else:
+                        print(f"⚠️ Ошибка при исправлении {table}.{column}: {e}")
+                        
+        except Exception as e:
+            print(f"⚠️ Ошибка при исправлении типов полей: {e}")
+        finally:
+            conn.commit()
+            cursor.close()
+            conn.close()
+    
+    def add_missing_columns(self):
+        """Добавление недостающих колонок в таблицу users"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Добавляем колонку object_name, если она не существует
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN object_name VARCHAR(255)")
+                print("✅ Колонка object_name добавлена в таблицу users")
+            except Exception as e:
+                if "already exists" in str(e) or "duplicate column name" in str(e):
+                    print("ℹ️ Колонка object_name уже существует")
+                else:
+                    print(f"⚠️ Ошибка при добавлении колонки object_name: {e}")
+            
+            # Добавляем колонку location, если она не существует
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN location VARCHAR(500)")
+                print("✅ Колонка location добавлена в таблицу users")
+            except Exception as e:
+                if "already exists" in str(e) or "duplicate column name" in str(e):
+                    print("ℹ️ Колонка location уже существует")
+                else:
+                    print(f"⚠️ Ошибка при добавлении колонки location: {e}")
+                    
+        except Exception as e:
+            print(f"⚠️ Ошибка при добавлении колонок: {e}")
+        finally:
+            conn.commit()
+            cursor.close()
+            conn.close()
+    
+    def add_user(self, telegram_id, username, full_name, phone, role, object_name=None, location=None):
         """Добавление нового пользователя"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -129,23 +207,66 @@ class Database:
             # Обновляем существующего пользователя
             cursor.execute("""
                 UPDATE users SET 
-                username = %s, full_name = %s, phone_number = %s, role = %s
+                username = %s, full_name = %s, phone_number = %s, role = %s, object_name = %s, location = %s
                 WHERE telegram_id = %s
-            """, (username, full_name, phone, role, telegram_id))
+            """, (username, full_name, phone, role, object_name, location, telegram_id))
             user_id = existing_user[0]
         else:
             # Добавляем нового пользователя
             is_approved = True if role in ['seller'] else False
             cursor.execute("""
-                INSERT INTO users (telegram_id, username, full_name, phone_number, role, is_approved)
-                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-            """, (telegram_id, username, full_name, phone, role, is_approved))
+                INSERT INTO users (telegram_id, username, full_name, phone_number, role, object_name, location, is_approved)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (telegram_id, username, full_name, phone, role, object_name, location, is_approved))
             user_id = cursor.fetchone()[0]
         
         conn.commit()
         cursor.close()
         conn.close()
         return user_id
+    
+    def update_user_object(self, telegram_id, object_name):
+        """Обновление объекта пользователя"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE users SET object_name = %s
+            WHERE telegram_id = %s
+        """, (object_name, telegram_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    
+    def update_user_location(self, telegram_id, location):
+        """Обновление локации пользователя"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE users SET location = %s
+            WHERE telegram_id = %s
+        """, (location, telegram_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    
+    def get_warehouse_users_by_object(self, object_name):
+        """Получение зав. складов по объекту"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT * FROM users 
+            WHERE role = 'warehouse' AND object_name = %s AND is_approved = TRUE
+        """, (object_name,))
+        users = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        return users
     
     def get_user(self, telegram_id):
         """Получение пользователя по Telegram ID"""
