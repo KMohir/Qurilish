@@ -11,10 +11,6 @@ COPY requirements.txt .
 # --no-cache-dir предотвращает создание кэша pip, уменьшая размер образа
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем остальной код приложения в контейнер по пути /app
-# Предполагается, что bot.py и другие файлы находятся в той же директории, что и Dockerfile
-COPY . .
-
 # Команда для запуска приложения
 # bot.py является точкой входа для вашего бота
 CMD ["python", "bot.py"]
