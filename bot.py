@@ -929,7 +929,19 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             # Уведомляем зав. складов
             for warehouse in warehouse_users:
                 try:
-                    location_info = f"\n📍 Локация: {warehouse['location']}" if warehouse['location'] else ""
+                    # Формируем локацию с кликабельной ссылкой
+                    location_info = ""
+                    if warehouse['location']:
+                        if "Координаты:" in warehouse['location']:
+                            # Извлекаем координаты
+                            coords_text = warehouse['location'].replace("Координаты: ", "")
+                            lat, lon = coords_text.split(", ")
+                            # Создаем ссылку на Google Maps
+                            google_maps_url = f"https://maps.google.com/?q={lat},{lon}"
+                            location_info = f"\n📍 Локация: [Google Maps]({google_maps_url})"
+                        else:
+                            location_info = f"\n📍 Локация: {warehouse['location']}"
+                    
                     await bot.send_message(
                         warehouse['telegram_id'],
                         f"🔔 Янги буюртма тасдиқланди!\n\n"
@@ -939,7 +951,8 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                         f"👨‍💼 Поставщик: {offer['full_name']}\n"
                         f"💵 Сумма: {offer['total_amount']:,} сўм\n"
                         f"📦 Етказиб бериш #{delivery_id}{location_info}\n\n"
-                        f"📞 Буюртмачи билан боғланиш: {buyer['phone_number']}"
+                        f"📞 Буюртмачи билан боғланиш: {buyer['phone_number']}",
+                        parse_mode="Markdown"
                     )
                     warehouse_notifications.append(warehouse['full_name'])
                 except Exception as e:
@@ -958,7 +971,16 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
             if warehouse_users:
                 warehouse_user = warehouse_users[0]
                 if warehouse_user['location']:
-                    warehouse_location = f"\n📍 Локация: {warehouse_user['location']}"
+                    # Проверяем, содержит ли локация координаты
+                    if "Координаты:" in warehouse_user['location']:
+                        # Извлекаем координаты
+                        coords_text = warehouse_user['location'].replace("Координаты: ", "")
+                        lat, lon = coords_text.split(", ")
+                        # Создаем ссылку на Google Maps
+                        google_maps_url = f"https://maps.google.com/?q={lat},{lon}"
+                        warehouse_location = f"\n📍 Локация: [Google Maps]({google_maps_url})"
+                    else:
+                        warehouse_location = f"\n📍 Локация: {warehouse_user['location']}"
             
             await bot.send_message(
                 offer['seller_telegram_id'],
@@ -967,7 +989,8 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                 f"📅 Тасдиқлаш санаси: {get_current_time()}\n"
                 f"📦 Етказиб бериш #{delivery_id} яратилди{warehouse_info}{warehouse_location}\n\n"
                 f"🚚 Илтимос, товарларни омборга етказиб беринг ва тўғридаги тугмани босинг:",
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode="Markdown"
             )
         except Exception as e:
             logger.error(f"Failed to notify seller {offer['seller_telegram_id']}: {e}")

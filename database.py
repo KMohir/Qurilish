@@ -184,6 +184,8 @@ class Database:
             except Exception as e:
                 if "already exists" in str(e) or "duplicate column name" in str(e):
                     print("ℹ️ Колонка location уже существует")
+                elif "current transaction is aborted" in str(e):
+                    print("ℹ️ Колонка location уже существует (транзакция прервана)")
                 else:
                     print(f"⚠️ Ошибка при добавлении колонки location: {e}")
                     
