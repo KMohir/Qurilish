@@ -311,15 +311,15 @@ class Database:
         cursor.close()
         conn.close()
     
-    def add_purchase_request(self, buyer_id, supplier_name, object_name, request_type='excel'):
+    def add_purchase_request(self, buyer_id, object_name, request_type='excel'):
         """Добавление заявки на покупку"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO purchase_requests (buyer_id, supplier, object_name, request_type)
-            VALUES (%s, %s, %s, %s) RETURNING id
-        """, (buyer_id, supplier_name, object_name, request_type))
+            INSERT INTO purchase_requests (buyer_id, object_name, request_type)
+            VALUES (%s, %s, %s) RETURNING id
+        """, (buyer_id, object_name, request_type))
         
         request_id = cursor.fetchone()[0]
         conn.commit()
@@ -419,6 +419,36 @@ class Database:
             WHERE so.purchase_request_id = %s
             ORDER BY so.created_at DESC
         """, (request_id,))
+        
+        offers = cursor.fetchall()
+        
+        # Получаем детали товаров для каждого предложения
+        for offer in offers:
+            cursor.execute("""
+                SELECT * FROM offer_items 
+                WHERE offer_id = %s 
+                ORDER BY created_at
+            """, (offer['id'],))
+            offer['items'] = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        return offers
+    
+    def get_all_offers_for_buyer(self, buyer_id):
+        """Получение всех предложений для заказчика (для всех его заявок)"""
+        conn = self.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cursor.execute("""
+            SELECT so.*, u.full_name, u.phone_number, so.excel_filename,
+                   pr.object_name, pr.supplier
+            FROM seller_offers so
+            JOIN users u ON so.seller_id = u.id
+            JOIN purchase_requests pr ON so.purchase_request_id = pr.id
+            WHERE pr.buyer_id = %s AND so.status = 'pending'
+            ORDER BY so.created_at DESC
+        """, (buyer_id,))
         
         offers = cursor.fetchall()
         

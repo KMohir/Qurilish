@@ -12,7 +12,6 @@ class ExcelHandler:
         """Создание шаблона заявки на покупку"""
         # Создаем DataFrame с заголовками и примерами
         data = {
-            'Потсавшик': ['Мисол: ООО "Строитель"'],
             'Обект номи': ['Мисол: Жилой комплекс "Сам Сити"'],
             'Махсулот номи': ['Мисол: Цемент'],
             'Миқдори': ['100'],
@@ -100,19 +99,16 @@ class ExcelHandler:
             
             # Получаем общие данные заявки (из первой строки)
             first_row = df.iloc[0]
-            supplier_name = str(first_row['Потсавшик']).strip() if pd.notna(first_row['Потсавшик']) and str(first_row['Потсавшик']).strip() != '' else 'Не указан'
             object_name = str(first_row['Обект номи']).strip() if pd.notna(first_row['Обект номи']) and str(first_row['Обект номи']).strip() != '' else 'Не указан'
             
             # Убираем префикс "Мисол: " если он есть
-            if supplier_name.startswith('Мисол: '):
-                supplier_name = supplier_name[7:]
             if object_name.startswith('Мисол: '):
                 object_name = object_name[7:]
             
             items = []
             for index, row in df.iterrows():
                 # Пропускаем пустые строки
-                if pd.isna(row['Потсавшик']) or row['Потсавшик'] == '':
+                if pd.isna(row['Махсулот номи']) or row['Махсулот номи'] == '':
                     continue
                 
                 item = {
@@ -124,7 +120,6 @@ class ExcelHandler:
                 items.append(item)
             
             return {
-                'supplier_name': supplier_name,
                 'object_name': object_name,
                 'items': items
             }
@@ -298,7 +293,7 @@ class ExcelHandler:
             df = pd.read_excel(io.BytesIO(file_content), sheet_name=0)
             
             if file_type == 'request':
-                required_columns = ['Потсавшик', 'Обект номи', 'Махсулот номи', 'Миқдори', 'Ўлчов бирлиги', 'Материал изох']
+                required_columns = ['Обект номи', 'Махсулот номи', 'Миқдори', 'Ўлчов бирлиги', 'Материал изох']
             else:  # offer
                 required_columns = ['Махсулот номи', 'Миқдори', 'Ўлчов бирлиги', 'Материал изох', 'нархи', 'Суммаси']
             

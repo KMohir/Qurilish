@@ -42,7 +42,6 @@ class RegistrationStates(StatesGroup):
     waiting_for_location = State()
 
 class PurchaseRequestStates(StatesGroup):
-    waiting_for_supplier = State()
     waiting_for_object = State()
     waiting_for_product = State()
     waiting_for_quantity = State()
@@ -483,7 +482,7 @@ async def process_create_request(callback_query: types.CallbackQuery, state: FSM
                 filename="заявка_шаблон.xlsx"
             ),
             caption="📊 Бу шаблонни тўлдиринг ва қайта юборинг:\n\n"
-                   "⚠️ **МУҲИМ:** Бирінчи қаторда поставщик ва объект номини тўлдиринг!\n"
+                   "⚠️ **МУҲИМ:** Бирінчи қаторда объект номини тўлдиринг!\n"
                    "📝 Мисолларда кўрсатилган форматда ёзинг."
         )
         await state.set_state(PurchaseRequestStates.waiting_for_excel_file)
@@ -492,14 +491,13 @@ async def process_create_request(callback_query: types.CallbackQuery, state: FSM
         await callback_query.message.answer(
             "📝 Введите данные заявки в текстовом формате.\n\n"
             "Формат:\n"
-            "Поставщик: [название поставщика]\n"
             "Объект: [название объекта]\n"
             "Товар: [название товара]\n"
             "Количество: [число]\n"
             "Единица: [шт/кг/м и т.д.]\n"
             "Описание: [дополнительная информация]"
         )
-        await state.set_state(PurchaseRequestStates.waiting_for_supplier)
+        await state.set_state(PurchaseRequestStates.waiting_for_excel_file)
     
     await callback_query.answer()
 
@@ -579,15 +577,13 @@ async def process_excel_request(message: types.Message, state: FSMContext):
             await message.answer("❌ Файл бўш ёки нотўғри форматда.")
             return
         
-        # Проверяем, что указаны поставщик и объект
-        if request_data['supplier_name'] == 'Не указан' or request_data['object_name'] == 'Не указан':
+        # Проверяем, что указан объект
+        if request_data['object_name'] == 'Не указан':
             await message.answer(
-                "❌ Илтимос, Excel файлда поставщик ва объект номини тўлдиринг!\n\n"
+                "❌ Илтимос, Excel файлда объект номини тўлдиринг!\n\n"
                 "📝 Бирінчи қаторда:\n"
-                "• Потсавшик: [поставщик номи]\n"
                 "• Обект номи: [объект номи]\n\n"
                 "Мисол:\n"
-                "• Потсавшик: ООО \"Строитель\"\n"
                 "• Обект номи: Жилой комплекс \"Сам Сити\""
             )
             return
@@ -597,7 +593,6 @@ async def process_excel_request(message: types.Message, state: FSMContext):
         
         request_id = db.add_purchase_request(
             buyer_id=user['id'],
-            supplier_name=request_data['supplier_name'],
             object_name=request_data['object_name']
         )
         
@@ -617,7 +612,6 @@ async def process_excel_request(message: types.Message, state: FSMContext):
             try:
                 # Создаем сообщение с информацией о заявке
                 message_text = f"📋 Новая заявка на покупку!\n\n"
-                message_text += f"🏢 Поставщик: {request_data['supplier_name']}\n"
                 message_text += f"🏗️ Объект: {request_data['object_name']}\n"
                 message_text += f"📦 Количество товаров: {len(request_data['items'])}\n\n"
                 
@@ -749,12 +743,45 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
                     caption="📊 Поставщиклар таклифлари билан Excel файл"
                 )
                 
-                # Отправляем сводку покупателю с кнопками
-                await bot.send_message(
-                    request['buyer_telegram_id'],
-                    summary,
-                    reply_markup=keyboard
-                )
+                # Функция для разбиения длинного текста на части
+                def split_message(text, max_length=4000):
+                    """Разбивает длинный текст на части, не превышающие max_length символов"""
+                    if len(text) <= max_length:
+                        return [text]
+                    
+                    parts = []
+                    current_part = ""
+                    lines = text.split('\n')
+                    
+                    for line in lines:
+                        if len(current_part + line + '\n') <= max_length:
+                            current_part += line + '\n'
+                        else:
+                            if current_part:
+                                parts.append(current_part.strip())
+                            current_part = line + '\n'
+                    
+                    if current_part:
+                        parts.append(current_part.strip())
+                    
+                    return parts
+                
+                # Разбиваем сводку на части, если она слишком длинная
+                summary_parts = split_message(summary)
+                
+                # Отправляем каждую часть отдельным сообщением
+                for i, part in enumerate(summary_parts):
+                    if i == 0:  # Только в первом сообщении добавляем кнопки
+                        await bot.send_message(
+                            request['buyer_telegram_id'],
+                            part,
+                            reply_markup=keyboard
+                        )
+                    else:
+                        await bot.send_message(
+                            request['buyer_telegram_id'],
+                            part
+                        )
                 
                 await message.answer(
                     f"✅ Таклиф муваффақиятли заказчикка юборилди!",
@@ -942,6 +969,23 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                         else:
                             location_info = f"\n📍 Локация: {warehouse['location']}"
                     
+                    # Формируем полный список товаров
+                    items_text = "\n📦 **Товарлар рўйхати:**\n"
+                    for i, item in enumerate(offer['items'], 1):
+                        items_text += f"{i}. **{item['product_name']}**\n"
+                        items_text += f"   📊 Миқдори: {item['quantity']} {item['unit']}\n"
+                        items_text += f"   💰 Нархи: {item['price_per_unit']:,} сўм\n"
+                        items_text += f"   💵 Сумма: {item['total_price']:,} сўм\n"
+                        if item['material_description']:
+                            items_text += f"   📝 Изох: {item['material_description']}\n"
+                        items_text += "\n"
+                    
+                    # Создаем клавиатуру с кнопками
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=f"📞 Звонить буюртмачи", url=f"tel:+{buyer['phone_number']}")],
+                        [InlineKeyboardButton(text=f"📞 Звонить зав. склада", url=f"tel:+{warehouse['phone_number']}")]
+                    ])
+                    
                     await bot.send_message(
                         warehouse['telegram_id'],
                         f"🔔 Янги буюртма тасдиқланди!\n\n"
@@ -949,10 +993,12 @@ async def process_approve_offer(callback_query: types.CallbackQuery):
                         f"👤 Буюртмачи: {buyer['full_name']}\n"
                         f"🏢 Объект: {request_info['buyer_object']}\n"
                         f"👨‍💼 Поставщик: {offer['full_name']}\n"
-                        f"💵 Сумма: {offer['total_amount']:,} сўм\n"
+                        f"💵 Умумий сумма: {offer['total_amount']:,} сўм\n"
                         f"📦 Етказиб бериш #{delivery_id}{location_info}\n\n"
-                        f"📞 Буюртмачи билан боғланиш: {buyer['phone_number']}",
-                        parse_mode="Markdown"
+                        f"📞 Буюртмачи билан боғланиш: {buyer['phone_number']}\n\n"
+                        f"{items_text}",
+                        parse_mode="Markdown",
+                        reply_markup=keyboard
                     )
                     warehouse_notifications.append(warehouse['full_name'])
                 except Exception as e:
@@ -1194,6 +1240,113 @@ async def process_contact_buyer(callback_query: types.CallbackQuery):
     except Exception as e:
         await callback_query.answer(f"❌ Ошибка: {str(e)}")
 
+@router.callback_query(lambda c: c.data.startswith('show_offers_'))
+async def process_show_offers(callback_query: types.CallbackQuery):
+    """Показать все предложения для конкретной заявки"""
+    try:
+        request_id = int(callback_query.data.split('_')[2])
+        
+        # Получаем данные заявки
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT pr.id, pr.buyer_id, pr.object_name, pr.status, pr.created_at,
+                   u.full_name as buyer_name, u.telegram_id as buyer_telegram_id
+            FROM purchase_requests pr
+            JOIN users u ON pr.buyer_id = u.id
+            WHERE pr.id = %s
+        """, (request_id,))
+        request = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not request:
+            await callback_query.answer("❌ Заявка не найдена.")
+            return
+        
+        # Получаем все предложения для этой заявки
+        offers = db.get_offers_for_request(request_id)
+        
+        if not offers:
+            await callback_query.answer("📭 Для этой заявки пока нет предложений.")
+            return
+        
+        # Создаем сводку предложений
+        summary = excel_handler.create_offers_summary(offers, request['buyer_name'])
+        
+        # Создаем Excel файл с предложениями
+        excel_file = excel_handler.create_offers_excel(offers, request['buyer_name'])
+        
+        # Создаем кнопки для каждого предложения
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        for offer in offers:
+            excel_info = f" (📄 {offer['excel_filename']})" if offer.get('excel_filename') else ""
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text=f"✅ Одобрить #{offer['id']}{excel_info}", 
+                    callback_data=f"approve_offer_{offer['id']}"
+                ),
+                InlineKeyboardButton(
+                    text=f"❌ Отклонить #{offer['id']}{excel_info}", 
+                    callback_data=f"reject_offer_{offer['id']}"
+                )
+            ])
+        
+        # Отправляем Excel файл покупателю
+        await bot.send_document(
+            request['buyer_telegram_id'],
+            types.BufferedInputFile(
+                excel_file.getvalue(),
+                filename=f"предложения_заявка_{request_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+            ),
+            caption="📊 Поставщиклар таклифлари билан Excel файл"
+        )
+        
+        # Функция для разбиения длинного текста на части
+        def split_message(text, max_length=4000):
+            """Разбивает длинный текст на части, не превышающие max_length символов"""
+            if len(text) <= max_length:
+                return [text]
+            
+            parts = []
+            current_part = ""
+            lines = text.split('\n')
+            
+            for line in lines:
+                if len(current_part + line + '\n') <= max_length:
+                    current_part += line + '\n'
+                else:
+                    if current_part:
+                        parts.append(current_part.strip())
+                    current_part = line + '\n'
+            
+            if current_part:
+                parts.append(current_part.strip())
+            
+            return parts
+        
+        # Разбиваем сводку на части, если она слишком длинная
+        summary_parts = split_message(summary)
+        
+        # Отправляем каждую часть отдельным сообщением
+        for i, part in enumerate(summary_parts):
+            if i == 0:  # Только в первом сообщении добавляем кнопки
+                await bot.send_message(
+                    request['buyer_telegram_id'],
+                    part,
+                    reply_markup=keyboard
+                )
+            else:
+                await bot.send_message(
+                    request['buyer_telegram_id'],
+                    part
+                )
+        
+        await callback_query.answer("✅ Предложения отправлены!")
+        
+    except Exception as e:
+        await callback_query.answer(f"❌ Ошибка: {str(e)}")
+
 @router.callback_query(lambda c: c.data.startswith('ship_sent_'))
 async def process_shipment_sent(callback_query: types.CallbackQuery):
     """Поставщик подтверждает отправку товаров"""
@@ -1226,6 +1379,31 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
             await callback_query.answer("❌ Етказиб бериш топилмади!")
             return
         
+        # Получаем список товаров для этой доставки
+        conn = db.get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT oi.product_name, oi.quantity, oi.unit, oi.price_per_unit, oi.total_price, oi.material_description
+            FROM offer_items oi
+            JOIN seller_offers so ON oi.offer_id = so.id
+            JOIN deliveries d ON so.id = d.offer_id
+            WHERE d.id = %s
+        """, (delivery_id,))
+        delivery_items = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        # Формируем список товаров
+        items_text = "\n📦 **Товарлар рўйхати:**\n"
+        for i, item in enumerate(delivery_items, 1):
+            items_text += f"{i}. **{item['product_name']}**\n"
+            items_text += f"   📊 Миқдори: {item['quantity']} {item['unit']}\n"
+            items_text += f"   💰 Нархи: {item['price_per_unit']:,} сўм\n"
+            items_text += f"   💵 Сумма: {item['total_price']:,} сўм\n"
+            if item['material_description']:
+                items_text += f"   📝 Изох: {item['material_description']}\n"
+            items_text += "\n"
+        
         # Уведомляем всех складских работников
         warehouse_users = db.get_users_by_role('warehouse')
         for warehouse_user in warehouse_users:
@@ -1244,6 +1422,7 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
                     f"👤 Буюртмачи: {delivery['buyer_name']}\n"
                     f"💵 Сумма: {delivery['total_amount']:,} сум\n"
                     f"📅 Время: {get_current_time()}\n\n"
+                    f"{items_text}\n"
                     f"✅ Илтимос, товарларни текширинг ва тўғридаги тугмани босинг:",
                     reply_markup=keyboard
                 )
@@ -1287,7 +1466,8 @@ async def handle_text(message: types.Message, state: FSMContext):
         "📦 Менинг буюртмаларим",
         "📋 Фаол аризалар",
         "💼 Менинг таклифларим",
-        "📦 Кутган етказиб беришлар"
+        "📦 Кутган етказиб беришлар",
+        "📊 Барча таклифлар"
     ]
     
     # Если это команда меню, обрабатываем её
@@ -1308,6 +1488,8 @@ async def handle_text(message: types.Message, state: FSMContext):
             await show_pending_deliveries(message)
         elif text == "✅ Қабул қилинган товарлар" and user['role'] == 'warehouse':
             await show_received_deliveries(message)
+        elif text == "📊 Барча таклифлар" and user['role'] == 'buyer':
+            await show_all_offers(message)
         else:
             await message.answer("❌ У вас нет прав для этой функции.")
         return
@@ -1387,7 +1569,30 @@ async def show_my_requests(message: types.Message):
         await message.answer("📭 Ҳозирча аризаларингиз йўқ.")
         return
     
-    for req in requests[:5]:  # Показываем последние 5 заявок
+    # Функция для разбиения длинного текста на части
+    def split_message(text, max_length=4000):
+        """Разбивает длинный текст на части, не превышающие max_length символов"""
+        if len(text) <= max_length:
+            return [text]
+        
+        parts = []
+        current_part = ""
+        lines = text.split('\n')
+        
+        for line in lines:
+            if len(current_part + line + '\n') <= max_length:
+                current_part += line + '\n'
+            else:
+                if current_part:
+                    parts.append(current_part.strip())
+                current_part = line + '\n'
+        
+        if current_part:
+            parts.append(current_part.strip())
+        
+        return parts
+
+    for req in requests:  # Показываем все заявки
         text = f"📋 **Заявка #{req['id']}**\n\n"
         text += f"🏢 Поставщик: {req['supplier_name']}\n"
         text += f"🏗️ Объект: {req['object_name']}\n"
@@ -1395,20 +1600,30 @@ async def show_my_requests(message: types.Message):
         text += f"📅 Дата: {req['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
         text += f"📊 Статус: {req['status']}\n\n"
         
-        # Добавляем информацию о товарах
+        # Добавляем полную информацию о товарах
         text += "📋 **Товары:**\n"
         if req['items']:
-            for i, item in enumerate(req['items'][:3], 1):  # Показываем первые 3 товара
-                text += f"{i}. {item['product_name']} - {item['quantity']} {item['unit']}\n"
+            for i, item in enumerate(req['items'], 1):
+                text += f"{i}. {item['product_name']}\n"
+                text += f"   📊 Количество: {item['quantity']} {item['unit']}\n"
                 if item['material_description']:
-                    text += f"   📝 {item['material_description']}\n"
-            
-            if len(req['items']) > 3:
-                text += f"... и еще {len(req['items']) - 3} товаров\n"
+                    text += f"   📝 Описание: {item['material_description']}\n"
+                text += "\n"
         else:
             text += "Товары не загружены\n"
         
-        await message.answer(text)
+        # Создаем кнопку для показа всех предложений
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Барча таклифларни кўриш", callback_data=f"show_offers_{req['id']}")]
+        ])
+        
+        # Разбиваем текст на части, если он слишком длинный
+        text_parts = split_message(text)
+        for i, part in enumerate(text_parts):
+            if i == 0:  # Только в первом сообщении добавляем кнопку
+                await message.answer(part, reply_markup=keyboard)
+            else:
+                await message.answer(part)
 
 async def show_active_requests(message: types.Message):
     """Показать активные заявки для поставщиков"""
@@ -1515,8 +1730,31 @@ async def show_my_orders(message: types.Message):
         caption="📦 Excel файл с одобренными заказами"
     )
     
+    # Функция для разбиения длинного текста на части
+    def split_message(text, max_length=4000):
+        """Разбивает длинный текст на части, не превышающие max_length символов"""
+        if len(text) <= max_length:
+            return [text]
+        
+        parts = []
+        current_part = ""
+        lines = text.split('\n')
+        
+        for line in lines:
+            if len(current_part + line + '\n') <= max_length:
+                current_part += line + '\n'
+            else:
+                if current_part:
+                    parts.append(current_part.strip())
+                current_part = line + '\n'
+        
+        if current_part:
+            parts.append(current_part.strip())
+        
+        return parts
+
     # Отправляем текстовую сводку
-    for offer in approved_offers[:5]:  # Показываем последние 5 заказов
+    for offer in approved_offers:  # Показываем все заказы
         text = f"📦 **Заказ #{offer['id']}**\n\n"
         text += f"🏢 Поставщик: {offer['supplier_name']}\n"
         text += f"🏗️ Объект: {offer['object_name']}\n"
@@ -1536,7 +1774,10 @@ async def show_my_orders(message: types.Message):
                 text += f"   📝 Описание: {item['material_description']}\n"
             text += "\n"
         
-        await message.answer(text)
+        # Разбиваем текст на части, если он слишком длинный
+        text_parts = split_message(text)
+        for part in text_parts:
+            await message.answer(part)
 
 async def show_my_offers(message: types.Message):
     """Показать предложения поставщика"""
@@ -1657,6 +1898,83 @@ async def show_received_deliveries(message: types.Message):
             text += "\n"
         
         await message.answer(text)
+
+async def show_all_offers(message: types.Message):
+    """Показать все предложения для заказчика"""
+    user = db.get_user(message.from_user.id)
+    if not user or user['role'] != 'buyer':
+        await message.answer("❌ Фақат заказчиклар таклифларни кўра олади.")
+        return
+    
+    # Получаем все предложения для заказчика
+    offers = db.get_all_offers_for_buyer(user['id'])
+    
+    if not offers:
+        await message.answer("📭 Ҳозирча таклифлар йўқ.")
+        return
+    
+    # Создаем сводку всех предложений
+    summary = excel_handler.create_offers_summary(offers, user['full_name'])
+    
+    # Создаем Excel файл с предложениями
+    excel_file = excel_handler.create_offers_excel(offers, user['full_name'])
+    
+    # Создаем кнопки для каждого предложения
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    for offer in offers:
+        excel_info = f" (📄 {offer['excel_filename']})" if offer.get('excel_filename') else ""
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(
+                text=f"✅ Одобрить #{offer['id']}{excel_info}", 
+                callback_data=f"approve_offer_{offer['id']}"
+            ),
+            InlineKeyboardButton(
+                text=f"❌ Отклонить #{offer['id']}{excel_info}", 
+                callback_data=f"reject_offer_{offer['id']}"
+            )
+        ])
+    
+    # Отправляем Excel файл покупателю
+    await message.answer_document(
+        types.BufferedInputFile(
+            excel_file.getvalue(),
+            filename=f"все_предложения_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        ),
+        caption="📊 Поставщиклар таклифлари билан Excel файл"
+    )
+    
+    # Функция для разбиения длинного текста на части
+    def split_message(text, max_length=4000):
+        """Разбивает длинный текст на части, не превышающие max_length символов"""
+        if len(text) <= max_length:
+            return [text]
+        
+        parts = []
+        current_part = ""
+        lines = text.split('\n')
+        
+        for line in lines:
+            if len(current_part + line + '\n') <= max_length:
+                current_part += line + '\n'
+            else:
+                if current_part:
+                    parts.append(current_part.strip())
+                current_part = line + '\n'
+        
+        if current_part:
+            parts.append(current_part.strip())
+        
+        return parts
+    
+    # Разбиваем сводку на части, если она слишком длинная
+    summary_parts = split_message(summary)
+    
+    # Отправляем каждую часть отдельным сообщением
+    for i, part in enumerate(summary_parts):
+        if i == 0:  # Только в первом сообщении добавляем кнопки
+            await message.answer(part, reply_markup=keyboard)
+        else:
+            await message.answer(part)
 
 # Запуск бота
 async def main():
