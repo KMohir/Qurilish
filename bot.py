@@ -813,6 +813,8 @@ async def process_excel_offer(message: types.Message, state: FSMContext):
                 
             except Exception as e:
                 logger.error(f"Failed to notify buyer {request['buyer_telegram_id']}: {e}")
+                logger.error(f"Buyer data: {request}")
+                logger.error(f"Offers data: {offers}")
                 await message.answer("✅ Таклиф сақланди, лекин заказчикни хабардор қилиш мумкин эмас.")
         
         await state.clear()
@@ -1212,12 +1214,11 @@ async def process_goods_received(callback_query: types.CallbackQuery):
         """, (delivery_id,))
         delivery = cursor.fetchone()
         
-        # Получаем товары из заявки (в текущей схеме данные хранятся в purchase_requests)
+        # Получаем товары из предложения поставщика
         cursor.execute("""
-            SELECT pr.product_name, pr.quantity, pr.unit, so.price, so.total_amount as total, pr.material_description as description
-            FROM purchase_requests pr
-            JOIN seller_offers so ON pr.id = so.purchase_request_id
-            WHERE so.id = %s
+            SELECT soi.product_name, soi.quantity, soi.unit, soi.price, soi.total, soi.description
+            FROM seller_offer_items soi
+            WHERE soi.offer_id = %s
         """, (delivery['offer_id'],))
         items = cursor.fetchall()
         cursor.close()
@@ -1235,19 +1236,26 @@ async def process_goods_received(callback_query: types.CallbackQuery):
             sheets_manager = GoogleSheetsManager()
             
             # Подготавливаем данные для записи
+            current_date = get_current_time().split()[0]  # Получаем только дату (07.08.2025)
+            
             delivery_data = {
+                'date': current_date,
                 'supplier': delivery['seller_name'],
                 'object': delivery['object_name'],
                 'items': []
             }
             
             for item in items:
+                # Форматируем цену и сумму (убираем лишние символы)
+                price = str(item['price']).replace(',', '') if item['price'] else '0'
+                total = str(item['total']).replace(',', '') if item['total'] else '0'
+                
                 delivery_data['items'].append({
                     'name': item['product_name'],
                     'quantity': str(item['quantity']),
                     'unit': item['unit'],
-                    'price': str(item['price']),
-                    'total': str(item['total']),
+                    'price': price,
+                    'total': total,
                     'description': item['description'] or ''
                 })
             
@@ -1445,9 +1453,9 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
         conn = db.get_connection()
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute("""
-            SELECT oi.product_name, oi.quantity, oi.unit, oi.price_per_unit, oi.total_price, oi.material_description
-            FROM offer_items oi
-            JOIN seller_offers so ON oi.offer_id = so.id
+            SELECT soi.product_name, soi.quantity, soi.unit, soi.price, soi.total, soi.description
+            FROM seller_offer_items soi
+            JOIN seller_offers so ON soi.offer_id = so.id
             JOIN deliveries d ON so.id = d.offer_id
             WHERE d.id = %s
         """, (delivery_id,))
@@ -1461,10 +1469,10 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
             items_text += f"{i}. **{item['product_name']}**\n"
             items_text += f"   📊 Миқдори: {item['quantity']} {item['unit']}\n"
             items_text += f"   📏 Ўлчов бирлиги: {item['unit']}\n"
-            items_text += f"   💰 Нархи: {item['price_per_unit']:,} сўм\n"
-            items_text += f"   💵 Сумма: {item['total_price']:,} сўм\n"
-            if item['material_description']:
-                items_text += f"   📝 Изох: {item['material_description']}\n"
+            items_text += f"   💰 Нархи: {item['price']:,} сўм\n"
+            items_text += f"   💵 Сумма: {item['total']:,} сўм\n"
+            if item['description']:
+                items_text += f"   📝 Изох: {item['description']}\n"
             items_text += "\n"
         
         # Уведомляем всех складских работников

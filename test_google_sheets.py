@@ -10,6 +10,7 @@ def test_write_delivery_data():
     
     # Тестовые данные
     test_delivery_data = {
+        'date': '07.08.2025',
         'supplier': 'Тестовый поставщик',
         'object': 'Тестовый объект',
         'items': [

@@ -200,10 +200,10 @@ class ExcelHandler:
             for j, item in enumerate(offer['items'], 1):
                 summary += f"  {j}. {item['product_name']}\n"
                 summary += f"     📊 Количество: {item['quantity']} {item['unit']}\n"
-                summary += f"     💰 Цена за единицу: {item['price_per_unit']:,} сум\n"
-                summary += f"     💵 Сумма: {item['total_price']:,} сум\n"
-                if item['material_description']:
-                    summary += f"     📝 Описание: {item['material_description']}\n"
+                summary += f"     💰 Цена за единицу: {item['price']:,} сум\n"
+                summary += f"     💵 Сумма: {item['total']:,} сум\n"
+                if item['description']:
+                    summary += f"     📝 Описание: {item['description']}\n"
                 summary += "\n"
             
             summary += "─" * 30 + "\n\n"
@@ -239,9 +239,9 @@ class ExcelHandler:
                 ws.cell(row=row, column=4, value=item['product_name'])
                 ws.cell(row=row, column=5, value=item['quantity'])
                 ws.cell(row=row, column=6, value=item['unit'])
-                ws.cell(row=row, column=7, value=item['price_per_unit'])
-                ws.cell(row=row, column=8, value=item['total_price'])
-                ws.cell(row=row, column=9, value=item['material_description'])
+                ws.cell(row=row, column=7, value=item['price'])
+                ws.cell(row=row, column=8, value=item['total'])
+                ws.cell(row=row, column=9, value=item['description'])
                 ws.cell(row=row, column=10, value=offer['total_amount'])
                 ws.cell(row=row, column=11, value=offer['created_at'].strftime('%d.%m.%Y %H:%M'))
                 row += 1

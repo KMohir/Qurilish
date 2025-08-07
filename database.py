@@ -365,7 +365,7 @@ class Database:
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO offer_items (offer_id, product_name, quantity, unit, price_per_unit, total_price, material_description)
+            INSERT INTO seller_offer_items (offer_id, product_name, quantity, unit, price, total, description)
             VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
         """, (offer_id, product_name, quantity, unit, price_per_unit, total_price, material_description))
         
@@ -422,10 +422,10 @@ class Database:
         
         offers = cursor.fetchall()
         
-        # Получаем детали товаров для каждого предложения
+                # Получаем детали товаров для каждого предложения
         for offer in offers:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (offer['id'],))
@@ -455,7 +455,7 @@ class Database:
         # Получаем детали товаров для каждого предложения
         for offer in offers:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (offer['id'],))
@@ -486,7 +486,7 @@ class Database:
         # Получаем детали товаров для каждого предложения
         for offer in offers:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (offer['id'],))
@@ -526,7 +526,7 @@ class Database:
         
         if offer:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (offer_id,))
@@ -599,7 +599,7 @@ class Database:
         # Получаем товары для каждой доставки
         for delivery in deliveries:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (delivery['offer_id'],))
@@ -636,7 +636,7 @@ class Database:
         # Получаем товары для каждой доставки
         for delivery in deliveries:
             cursor.execute("""
-                SELECT * FROM offer_items 
+                SELECT * FROM seller_offer_items 
                 WHERE offer_id = %s 
                 ORDER BY created_at
             """, (delivery['offer_id'],))

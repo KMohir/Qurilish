@@ -81,20 +81,33 @@ class GoogleSheetsManager:
             rows = []
             
             for item in delivery_data['items']:
+                # Преобразуем количество в int (убираем .00)
+                quantity = item['quantity']
+                if quantity and '.' in quantity:
+                    try:
+                        quantity = str(int(float(quantity)))
+                    except:
+                        pass
+                
+                # Убираем "сўм" из цены и суммы
+                price = item['price'].replace(' сўм', '').replace(' сум', '') if item['price'] else ''
+                total = item['total'].replace(' сўм', '').replace(' сум', '') if item['total'] else ''
+                
                 row = [
-                    delivery_data['supplier'],  # Поставщик
-                    delivery_data['object'],     # Объект номи
-                    item['name'],                # Махсулот номи
-                    item['quantity'],            # Миқдори
-                    item['unit'],                # Ўлчов бирлиги
-                    item['price'],               # Нархи
-                    item['total'],               # Сумма
-                    item['description']          # Изох
+                    delivery_data['date'],       # A: Дата (Кун)
+                    delivery_data['supplier'],   # B: Поставщик (Потсавшик)
+                    delivery_data['object'],     # C: Объект номи
+                    item['name'],                # D: Махсулот номи
+                    quantity,                    # E: Миқдори
+                    item['unit'],                # F: Ўлчов бирлиги
+                    item['description'],         # G: Материал изох
+                    price,                       # H: Нархи
+                    total                        # I: Суммаси
                 ]
                 rows.append(row)
             
-            # Диапазон для записи (Лист1)
-            range_name = 'Лист1!A:H'
+            # Диапазон для записи (Лист1) - расширен до колонки I
+            range_name = 'Лист1!A:I'
             
             # Записываем данные
             body = {
