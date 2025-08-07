@@ -1,0 +1,6 @@
+Dockerfile
+docker-compose.yaml
+venv/
+env/
+.git/
+
