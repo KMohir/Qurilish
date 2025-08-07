@@ -1226,7 +1226,6 @@ async def process_goods_received(callback_query: types.CallbackQuery):
                 delivery['buyer_telegram_id'],
                 f"🎉 **Товарлар келди!**\n\n"
                 f"📦 Етказиб бериш #{delivery_id}\n"
-                f"🏢 Поставщик: {delivery['supplier']}\n"
                 f"🏗️ Объект: {delivery['object_name']}\n"
                 f"👤 Поставщик: {delivery['seller_name']}\n"
                 f"💵 Сумма: {delivery['total_amount']:,} сум\n"
@@ -1440,7 +1439,6 @@ async def process_shipment_sent(callback_query: types.CallbackQuery):
                     warehouse_user['telegram_id'],
                     f"📦 **Товарлар омборга келди!**\n\n"
                     f"📦 Етказиб бериш #{delivery_id}\n"
-                    f"🏢 Поставщик: {delivery['supplier']}\n"
                     f"🏗️ Объект: {delivery['object_name']}\n"
                     f"👤 Поставщик: {delivery['seller_name']}\n"
                     f"👤 Буюртмачи: {delivery['buyer_name']}\n"
