@@ -105,6 +105,21 @@ class Database:
             )
         """)
         
+        # Таблица seller_offer_items (новая таблица для деталей предложений)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS seller_offer_items (
+                id SERIAL PRIMARY KEY,
+                offer_id INTEGER REFERENCES seller_offers(id) ON DELETE CASCADE,
+                product_name VARCHAR(255),
+                quantity DECIMAL(15,2),
+                unit VARCHAR(50),
+                price DECIMAL(15,2),
+                total DECIMAL(15,2),
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Таблица доставки
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS deliveries (
@@ -140,6 +155,9 @@ class Database:
                 ("offer_items", "quantity", "DECIMAL(15,2)"),
                 ("offer_items", "price_per_unit", "DECIMAL(15,2)"),
                 ("offer_items", "total_price", "DECIMAL(15,2)"),
+                ("seller_offer_items", "quantity", "DECIMAL(15,2)"),
+                ("seller_offer_items", "price", "DECIMAL(15,2)"),
+                ("seller_offer_items", "total", "DECIMAL(15,2)"),
                 ("request_items", "quantity", "DECIMAL(15,2)"),
                 ("seller_offers", "total_amount", "DECIMAL(15,2)")
             ]
@@ -162,7 +180,7 @@ class Database:
             conn.close()
     
     def add_missing_columns(self):
-        """Добавление недостающих колонок в таблицу users"""
+        """Добавление недостающих колонок в таблицы"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -186,8 +204,30 @@ class Database:
                     print("ℹ️ Колонка location уже существует")
                 elif "current transaction is aborted" in str(e):
                     print("ℹ️ Колонка location уже существует (транзакция прервана)")
+                    # Откатываем транзакцию и начинаем новую
+                    conn.rollback()
+                    cursor = conn.cursor()
                 else:
                     print(f"⚠️ Ошибка при добавлении колонки location: {e}")
+            
+            # Создаем таблицу seller_offer_items, если она не существует
+            try:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS seller_offer_items (
+                        id SERIAL PRIMARY KEY,
+                        offer_id INTEGER REFERENCES seller_offers(id) ON DELETE CASCADE,
+                        product_name VARCHAR(255),
+                        quantity DECIMAL(15,2),
+                        unit VARCHAR(50),
+                        price DECIMAL(15,2),
+                        total DECIMAL(15,2),
+                        description TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                print("✅ Таблица seller_offer_items создана/проверена")
+            except Exception as e:
+                print(f"⚠️ Ошибка при создании таблицы seller_offer_items: {e}")
                     
         except Exception as e:
             print(f"⚠️ Ошибка при добавлении колонок: {e}")
