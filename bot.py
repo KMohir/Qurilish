@@ -1236,13 +1236,8 @@ async def process_goods_received(callback_query: types.CallbackQuery):
         except Exception as e:
             logger.error(f"Failed to notify buyer {delivery['buyer_telegram_id']}: {e}")
         
-        # Обновляем сообщение склада
-        await callback_query.message.edit_text(
-            f"✅ **Товарлар қабул қилинди!**\n\n"
-            f"📦 Етказиб бериш #{delivery_id}\n"
-            f"📅 Время получения: {get_current_time()}\n\n"
-            f"✅ Буюртмачига хабар юборилди!"
-        )
+        # Убираем кнопку из сообщения склада
+        await callback_query.message.edit_reply_markup(reply_markup=None)
         await callback_query.answer("✅ Товары получены!")
         
     except Exception as e:
