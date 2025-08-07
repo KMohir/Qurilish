@@ -14,6 +14,7 @@ from config import BOT_TOKEN, ADMIN_IDS, TIMEZONE
 from database import Database
 from excel_handler import ExcelHandler
 from keyboards import get_role_keyboard, get_contact_keyboard, get_object_keyboard, get_cancel_keyboard
+from google_sheets import GoogleSheetsManager, parse_delivery_message
 import pandas as pd
 import io
 import psycopg2.extras
@@ -1195,7 +1196,7 @@ async def process_goods_received(callback_query: types.CallbackQuery):
             await callback_query.answer("❌ Только складские работники могут подтверждать получение!")
             return
         
-        # Получаем данные доставки
+        # Получаем данные доставки и товаров
         conn = db.get_connection()
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute("""
@@ -1210,6 +1211,15 @@ async def process_goods_received(callback_query: types.CallbackQuery):
             WHERE d.id = %s
         """, (delivery_id,))
         delivery = cursor.fetchone()
+        
+        # Получаем товары из заявки (в текущей схеме данные хранятся в purchase_requests)
+        cursor.execute("""
+            SELECT pr.product_name, pr.quantity, pr.unit, so.price, so.total_amount as total, pr.material_description as description
+            FROM purchase_requests pr
+            JOIN seller_offers so ON pr.id = so.purchase_request_id
+            WHERE so.id = %s
+        """, (delivery['offer_id'],))
+        items = cursor.fetchall()
         cursor.close()
         conn.close()
         
@@ -1219,6 +1229,36 @@ async def process_goods_received(callback_query: types.CallbackQuery):
         
         # Обновляем статус доставки
         db.update_delivery_status(delivery_id, 'received')
+        
+        # Записываем данные в Google Sheets
+        try:
+            sheets_manager = GoogleSheetsManager()
+            
+            # Подготавливаем данные для записи
+            delivery_data = {
+                'supplier': delivery['seller_name'],
+                'object': delivery['object_name'],
+                'items': []
+            }
+            
+            for item in items:
+                delivery_data['items'].append({
+                    'name': item['product_name'],
+                    'quantity': str(item['quantity']),
+                    'unit': item['unit'],
+                    'price': str(item['price']),
+                    'total': str(item['total']),
+                    'description': item['description'] or ''
+                })
+            
+            # Записываем в Google Sheets
+            if sheets_manager.append_delivery_data(delivery_data):
+                logger.info(f"Данные успешно записаны в Google Sheets для доставки #{delivery_id}")
+            else:
+                logger.error(f"Ошибка записи в Google Sheets для доставки #{delivery_id}")
+                
+        except Exception as e:
+            logger.error(f"Ошибка работы с Google Sheets: {e}")
         
         # Уведомляем заказчика
         try:
